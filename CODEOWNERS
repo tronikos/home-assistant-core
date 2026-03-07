@@ -1241,6 +1241,7 @@ CLAUDE.md @home-assistant/core
 /tests/components/ness_alarm/ @nickw444 @poshy163
 /homeassistant/components/nest/ @allenporter
 /tests/components/nest/ @allenporter
+/homeassistant/components/nest_legacy/ @tronikos
 /homeassistant/components/netatmo/ @cgtobi
 /tests/components/netatmo/ @cgtobi
 /homeassistant/components/netdata/ @fabaff

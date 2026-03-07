@@ -523,6 +523,7 @@ FLOWS = {
         "neopool",
         "ness_alarm",
         "nest",
+        "nest_legacy",
         "netatmo",
         "netgear",
         "netgear_lte",

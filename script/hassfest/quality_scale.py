@@ -615,6 +615,7 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "nasweb",
     "neato",
     "nederlandse_spoorwegen",
+    "nest_legacy",
     "netdata",
     "netgear",
     "netgear_lte",
