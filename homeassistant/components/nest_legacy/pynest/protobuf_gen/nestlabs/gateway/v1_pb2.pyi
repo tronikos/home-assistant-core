@@ -5,7 +5,7 @@ from google.protobuf import field_mask_pb2 as _field_mask_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from google.rpc import status_pb2 as _status_pb2
 from ...nest import messages_pb2 as _messages_pb2
-import wdl_event_importance_pb2 as _wdl_event_importance_pb2
+from ... import wdl_event_importance_pb2 as _wdl_event_importance_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor

@@ -36,6 +36,7 @@ from .protobuf_gen.nest.trait import (
     located_pb2 as nest_located_pb2,
     occupancy_pb2 as nest_occupancy_pb2,
     safety_pb2 as nest_safety_pb2,
+    security_pb2 as nest_security_pb2,
     sensor_pb2 as nest_sensor_pb2,
     structure_pb2 as nest_structure_pb2,
     ui_pb2 as nest_ui_pb2,
@@ -793,12 +794,24 @@ class NestParser:
             else False
         )
 
+        enhanced_settings_trait: (
+            nest_security_pb2.EnhancedBoltLockSettingsTrait | None
+        ) = traits.get(
+            nest_security_pb2.EnhancedBoltLockSettingsTrait.DESCRIPTOR.full_name
+        )
         settings_trait: weave_security_pb2.BoltLockSettingsTrait | None = traits.get(
             weave_security_pb2.BoltLockSettingsTrait.DESCRIPTOR.full_name
         )
-        auto_relock_duration = (
-            settings_trait.autoRelockDuration.seconds if settings_trait else 0
-        )
+
+        if enhanced_settings_trait:
+            auto_relock_on = enhanced_settings_trait.autoRelockOn
+            auto_relock_duration = enhanced_settings_trait.autoRelockDuration.seconds
+        elif settings_trait:
+            auto_relock_on = settings_trait.autoRelockOn
+            auto_relock_duration = settings_trait.autoRelockDuration.seconds
+        else:
+            auto_relock_on = False
+            auto_relock_duration = 0
 
         caps_trait: weave_security_pb2.BoltLockCapabilitiesTrait | None = traits.get(
             weave_security_pb2.BoltLockCapabilitiesTrait.DESCRIPTOR.full_name
@@ -820,7 +833,7 @@ class NestParser:
             battery_level=battery_level,
             battery_voltage=battery_voltage,
             tampered=tampered,
-            auto_relock_on=settings_trait.autoRelockOn if settings_trait else False,
+            auto_relock_on=auto_relock_on,
             auto_relock_duration=auto_relock_duration,
             max_auto_relock_duration=max_auto_relock_duration,
             is_protobuf=True,

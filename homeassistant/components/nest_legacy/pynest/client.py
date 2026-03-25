@@ -55,6 +55,7 @@ from .protobuf_gen.nest.trait import (
     located_pb2 as nest_located_pb2,
     occupancy_pb2 as nest_occupancy_pb2,
     safety_pb2 as nest_safety_pb2,
+    security_pb2 as nest_security_pb2,
     sensor_pb2 as nest_sensor_pb2,
     structure_pb2 as nest_structure_pb2,
     ui_pb2 as nest_ui_pb2,
@@ -98,6 +99,7 @@ _OBSERVE_LOCK_TRAITS = (
     weave_security_pb2.BoltLockSettingsTrait,
     weave_security_pb2.BoltLockCapabilitiesTrait,
     weave_security_pb2.TamperTrait,
+    nest_security_pb2.EnhancedBoltLockSettingsTrait,
     # Power (for Locks)
     weave_power_pb2.BatteryPowerSourceTrait,
     # Description / Identity (for Locks)
@@ -1401,27 +1403,66 @@ class NestClient:
                 type_url_prefix=_NESTLABS_TYPE_URL_PREFIX,
             )
             await self._async_send_command(device, command)
+
         if "auto_relock_duration" in data or "auto_relock_on" in data:
-            state_proto = _get_trait_copy(
-                current_traits, weave_security_pb2.BoltLockSettingsTrait
-            )
-            if "auto_relock_on" in data:
-                state_proto.autoRelockOn = data["auto_relock_on"]
-            if "auto_relock_duration" in data:
-                state_proto.autoRelockDuration.seconds = data["auto_relock_duration"]
+            if (
+                current_traits
+                and nest_security_pb2.EnhancedBoltLockSettingsTrait.DESCRIPTOR.full_name
+                in current_traits
+            ):
+                enhanced_state_proto = _get_trait_copy(
+                    current_traits, nest_security_pb2.EnhancedBoltLockSettingsTrait
+                )
+                if "auto_relock_on" in data:
+                    enhanced_state_proto.autoRelockOn = data["auto_relock_on"]
+                if "auto_relock_duration" in data:
+                    enhanced_state_proto.autoRelockDuration.seconds = data[
+                        "auto_relock_duration"
+                    ]
 
-            any_proto = google.protobuf.any_pb2.Any()
-            any_proto.Pack(state_proto, type_url_prefix=_NESTLABS_TYPE_URL_PREFIX)
+                any_proto = google.protobuf.any_pb2.Any()
+                any_proto.Pack(
+                    enhanced_state_proto, type_url_prefix=_NESTLABS_TYPE_URL_PREFIX
+                )
 
-            request = v1_pb2.TraitUpdateStateRequest(
-                traitRequest=v1_pb2.TraitRequest(
-                    resourceId=device.object_key,
-                    traitLabel="bolt_lock_settings",
-                    requestId=str(uuid.uuid4()),
-                ),
-                state=any_proto,
-            )
-            await self._async_update_trait_state(request)
+                request = v1_pb2.TraitUpdateStateRequest(
+                    traitRequest=v1_pb2.TraitRequest(
+                        resourceId=device.object_key,
+                        traitLabel="enhanced_bolt_lock_settings",
+                        requestId=str(uuid.uuid4()),
+                    ),
+                    state=any_proto,
+                )
+                try:
+                    await self._async_update_trait_state(request)
+                except PynestException as err:
+                    _LOGGER.debug("Failed with enhanced_bolt_lock_settings: %s", err)
+                    # Fallback to bolt_lock_settings if it fails
+                    request.traitRequest.traitLabel = "bolt_lock_settings"
+                    await self._async_update_trait_state(request)
+            else:
+                state_proto = _get_trait_copy(
+                    current_traits, weave_security_pb2.BoltLockSettingsTrait
+                )
+                if "auto_relock_on" in data:
+                    state_proto.autoRelockOn = data["auto_relock_on"]
+                if "auto_relock_duration" in data:
+                    state_proto.autoRelockDuration.seconds = data[
+                        "auto_relock_duration"
+                    ]
+
+                any_proto = google.protobuf.any_pb2.Any()
+                any_proto.Pack(state_proto, type_url_prefix=_NESTLABS_TYPE_URL_PREFIX)
+
+                request = v1_pb2.TraitUpdateStateRequest(
+                    traitRequest=v1_pb2.TraitRequest(
+                        resourceId=device.object_key,
+                        traitLabel="bolt_lock_settings",
+                        requestId=str(uuid.uuid4()),
+                    ),
+                    state=any_proto,
+                )
+                await self._async_update_trait_state(request)
 
     def _update_eco_mode_settings(
         self,
