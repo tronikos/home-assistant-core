@@ -84,17 +84,67 @@ def _scale_value(
     ) + target_min
 
 
-def _get_protobuf_location(traits: dict[str, Any]) -> str | None:
-    """Extract location from protobuf traits."""
+def _resolve_canonical_annotation_id(annotation_id: str) -> str:
+    """Resolve canonical annotation ID for flagged fixtures (e.g., stripping 0x01000000)."""
+    if not annotation_id or not annotation_id.startswith("ANNOTATION_"):
+        return annotation_id
+
+    suffix = annotation_id.split("ANNOTATION_", 1)[1]
+    if len(suffix) != 16:
+        return annotation_id
+
+    try:
+        value = int(suffix, 16)
+        # Handle flagged fixture IDs
+        if suffix.startswith("0000000001") and value >= 0x01000000:
+            canonical = value - 0x01000000
+            return f"ANNOTATION_{canonical:016X}"
+        # Handle Door presets (0x01008000 bucket)
+        if 0x01008000 <= value <= 0x01008020:
+            preset = (value - 0x01008000) + 0x1A
+            return f"ANNOTATION_{preset:016X}"
+    except ValueError:
+        pass
+
+    return annotation_id
+
+
+def _get_protobuf_location(
+    traits: dict[str, Any], wheres_map: dict[str, str]
+) -> str | None:
+    """Extract location from protobuf traits, falling back to catalogs if needed."""
     loc_trait: nest_located_pb2.DeviceLocatedSettingsTrait | None = traits.get(
         nest_located_pb2.DeviceLocatedSettingsTrait.DESCRIPTOR.full_name
     )
     if not loc_trait:
         return None
-    if loc_trait.HasField("whereLabel"):
+
+    # 1. Try explicit literals (these are sometimes stripped in delta updates)
+    if loc_trait.HasField("whereLabel") and loc_trait.whereLabel.literal:
         return loc_trait.whereLabel.literal
-    if loc_trait.HasField("fixtureNameLabel"):
+    if loc_trait.HasField("fixtureNameLabel") and loc_trait.fixtureNameLabel.literal:
         return loc_trait.fixtureNameLabel.literal
+
+    # 2. Try looking up the Area/Where IDs in the cached catalogs
+    if loc_trait.HasField("whereAnnotationRid"):
+        where_id = loc_trait.whereAnnotationRid.resourceId
+        if where_id in wheres_map:
+            return wheres_map[where_id]
+
+        canonical = _resolve_canonical_annotation_id(where_id)
+        if canonical in wheres_map:
+            return wheres_map[canonical]
+
+    # 3. Try looking up the Fixture/Door IDs in the cached catalogs
+    if loc_trait.HasField("fixtureAnnotationRid"):
+        fixture_id = loc_trait.fixtureAnnotationRid.resourceId
+        if fixture_id in wheres_map:
+            return wheres_map[fixture_id]
+
+        canonical = _resolve_canonical_annotation_id(fixture_id)
+        if canonical in wheres_map:
+            return wheres_map[canonical]
+
     return None
 
 
@@ -180,10 +230,10 @@ class NestParser:
                 elif key.startswith("DEVICE_"):
                     # Handle protobuf devices
                     if weave_security_pb2.BoltLockTrait.DESCRIPTOR.full_name in value:
-                        device = self._parse_protobuf_lock(key, value)
+                        device = self._parse_protobuf_lock(key, value, wheres_map)
                     elif nest_hvac_pb2.HvacControlTrait.DESCRIPTOR.full_name in value:
                         if device := self._parse_protobuf_thermostat(
-                            key, value, raw_data
+                            key, value, raw_data, wheres_map
                         ):
                             thermostats.append(device)
                     elif (
@@ -193,12 +243,14 @@ class NestParser:
                         or nest_safety_pb2.SafetyAlarmSmokeTrait.DESCRIPTOR.full_name
                         in value
                     ):
-                        device = self._parse_protobuf_protect(key, value, raw_data)
+                        device = self._parse_protobuf_protect(
+                            key, value, raw_data, wheres_map
+                        )
                     elif (
                         nest_camera_pb2.StreamingProtocolTrait.DESCRIPTOR.full_name
                         in value
                     ):
-                        device = self._parse_protobuf_camera(key, value)
+                        device = self._parse_protobuf_camera(key, value, wheres_map)
                     elif (
                         nest_sensor_pb2.TemperatureTrait.DESCRIPTOR.full_name in value
                         and nest_hvac_pb2.HvacControlTrait.DESCRIPTOR.full_name
@@ -206,7 +258,9 @@ class NestParser:
                         and nest_sensor_pb2.HumidityTrait.DESCRIPTOR.full_name
                         not in value
                     ):
-                        device = self._parse_protobuf_sensor(key, value, raw_data)
+                        device = self._parse_protobuf_sensor(
+                            key, value, raw_data, wheres_map
+                        )
                     elif (
                         nest_structure_pb2.StructureInfoTrait.DESCRIPTOR.full_name
                         in value
@@ -228,13 +282,47 @@ class NestParser:
         return ParsedData(devices=devices)
 
     def _build_wheres_map(self, raw_data: dict[str, Any]) -> dict[str, str]:
-        """Build a map of where_id to location name."""
+        """Build a map of annotation IDs to location names."""
         wheres_map: dict[str, str] = {}
+
+        # 1. Legacy REST locations
         for key, value in raw_data.items():
             if key.startswith("where."):
                 for where in value.get("wheres", []):
                     if "where_id" in where and "name" in where:
                         wheres_map[where["where_id"]] = where["name"]
+
+        # 2. Protobuf Locations (From Structure Traits)
+        for traits in raw_data.values():
+            if not isinstance(traits, dict):
+                continue
+
+            # Parse LocatedAnnotationsTrait (Standard Rooms)
+            ann_trait: nest_located_pb2.LocatedAnnotationsTrait | None = traits.get(
+                nest_located_pb2.LocatedAnnotationsTrait.DESCRIPTOR.full_name
+            )
+            if ann_trait:
+                for item in ann_trait.predefinedWheres.values():
+                    if item.HasField("whereId") and item.HasField("label"):
+                        wheres_map[item.whereId.resourceId] = item.label.literal
+                for item in ann_trait.customWheres.values():
+                    if item.HasField("whereId") and item.HasField("label"):
+                        wheres_map[item.whereId.resourceId] = item.label.literal
+
+            # Parse CustomLocatedAnnotationsTrait (Custom Rooms & Fixtures)
+            custom_ann_trait: nest_located_pb2.CustomLocatedAnnotationsTrait | None = (
+                traits.get(
+                    nest_located_pb2.CustomLocatedAnnotationsTrait.DESCRIPTOR.full_name
+                )
+            )
+            if custom_ann_trait:
+                for w_item in custom_ann_trait.wheresList.values():
+                    if w_item.HasField("whereId") and w_item.HasField("label"):
+                        wheres_map[w_item.whereId.resourceId] = w_item.label.literal
+                for f_item in custom_ann_trait.fixturesList.values():
+                    if f_item.HasField("fixtureId") and f_item.HasField("label"):
+                        wheres_map[f_item.fixtureId.resourceId] = f_item.label.literal
+
         return wheres_map
 
     def _get_location(
@@ -706,6 +794,7 @@ class NestParser:
         self,
         key: str,
         traits: dict[str, Any],
+        wheres_map: dict[str, str],
     ) -> NestLock | None:
         """Parse a Nest x Yale Lock from protobuf data."""
         bolt_lock_trait: weave_security_pb2.BoltLockTrait | None = traits.get(
@@ -823,7 +912,7 @@ class NestParser:
         return NestLock(
             object_key=key,
             serial_number=serial_number,
-            location=_get_protobuf_location(traits),
+            location=_get_protobuf_location(traits, wheres_map),
             name=name,
             model="Nest x Yale Lock",
             software_version=software_version,
@@ -1213,7 +1302,11 @@ class NestParser:
         return "Doorbell (unknown)" if is_doorbell else "Camera (unknown)"
 
     def _parse_protobuf_thermostat(
-        self, key: str, traits: dict[str, Any], raw_data: dict[str, Any]
+        self,
+        key: str,
+        traits: dict[str, Any],
+        raw_data: dict[str, Any],
+        wheres_map: dict[str, str],
     ) -> NestThermostat | None:
         """Parse a Nest Thermostat from protobuf data."""
         hvac_trait: nest_hvac_pb2.HvacControlTrait | None = traits.get(
@@ -1432,7 +1525,7 @@ class NestParser:
             object_key=key,
             serial_number=serial_number,
             name=name,
-            location=_get_protobuf_location(traits),
+            location=_get_protobuf_location(traits, wheres_map),
             model=model,
             software_version=software_version,
             online=online,
@@ -1617,7 +1710,11 @@ class NestParser:
         return latest_manual_test_end_utc_secs, last_audio_self_test_end_utc_secs
 
     def _parse_protobuf_protect(
-        self, key: str, traits: dict[str, Any], raw_data: dict[str, Any]
+        self,
+        key: str,
+        traits: dict[str, Any],
+        raw_data: dict[str, Any],
+        wheres_map: dict[str, str],
     ) -> NestProtect | None:
         """Parse a Nest Protect from protobuf data."""
         smoke_trait: nest_sensor_pb2.SmokeTrait | None = traits.get(
@@ -1645,9 +1742,7 @@ class NestParser:
         label_trait: weave_description_pb2.LabelSettingsTrait | None = traits.get(
             weave_description_pb2.LabelSettingsTrait.DESCRIPTOR.full_name
         )
-        name = (
-            label_trait.label if label_trait and label_trait.label else "Nest Protect"
-        )
+        name = label_trait.label if label_trait and label_trait.label else "Protect"
 
         liveness_trait: weave_heartbeat_pb2.LivenessTrait | None = traits.get(
             weave_heartbeat_pb2.LivenessTrait.DESCRIPTOR.full_name
@@ -1786,7 +1881,7 @@ class NestParser:
             return NestWiredProtect(
                 object_key=key,
                 serial_number=serial_number,
-                location=_get_protobuf_location(traits),
+                location=_get_protobuf_location(traits, wheres_map),
                 name=name,
                 model="Nest Protect (Wired)",
                 software_version=software_version,
@@ -1820,7 +1915,7 @@ class NestParser:
         return NestBatteryProtect(
             object_key=key,
             serial_number=serial_number,
-            location=_get_protobuf_location(traits),
+            location=_get_protobuf_location(traits, wheres_map),
             name=name,
             model="Nest Protect (Battery)",
             software_version=software_version,
@@ -1850,7 +1945,10 @@ class NestParser:
         )
 
     def _parse_protobuf_camera(
-        self, key: str, traits: dict[str, Any]
+        self,
+        key: str,
+        traits: dict[str, Any],
+        wheres_map: dict[str, str],
     ) -> NestCamera | None:
         """Parse a Nest Camera from protobuf data."""
         streaming_trait: nest_camera_pb2.StreamingProtocolTrait | None = traits.get(
@@ -1967,7 +2065,7 @@ class NestParser:
                 object_key=key,
                 serial_number=serial_number,
                 name=name,
-                location=_get_protobuf_location(traits),
+                location=_get_protobuf_location(traits, wheres_map),
                 model=model,
                 software_version=software_version,
                 online=online,
@@ -1988,7 +2086,7 @@ class NestParser:
             object_key=key,
             serial_number=serial_number,
             name=name,
-            location=_get_protobuf_location(traits),
+            location=_get_protobuf_location(traits, wheres_map),
             model=model,
             software_version=software_version,
             online=online,
@@ -2004,7 +2102,11 @@ class NestParser:
         )
 
     def _parse_protobuf_sensor(
-        self, key: str, traits: dict[str, Any], raw_data: dict[str, Any]
+        self,
+        key: str,
+        traits: dict[str, Any],
+        raw_data: dict[str, Any],
+        wheres_map: dict[str, str],
     ) -> NestTempSensor | None:
         """Parse a Nest Temperature Sensor from protobuf data."""
         # Ensure it's a sensor and not a thermostat (thermostats also have temperature)
@@ -2139,7 +2241,7 @@ class NestParser:
             object_key=key,
             serial_number=serial_number,
             name=name,
-            location=_get_protobuf_location(traits),
+            location=_get_protobuf_location(traits, wheres_map),
             model="Temperature Sensor",
             online=online,
             current_temperature=_round_temp(

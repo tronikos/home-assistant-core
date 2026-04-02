@@ -107,6 +107,8 @@ _OBSERVE_LOCK_TRAITS = (
     weave_description_pb2.LabelSettingsTrait,
     weave_heartbeat_pb2.LivenessTrait,
     nest_located_pb2.DeviceLocatedSettingsTrait,
+    nest_located_pb2.LocatedAnnotationsTrait,
+    nest_located_pb2.CustomLocatedAnnotationsTrait,
 )
 
 # Thermostat-specific traits
@@ -146,6 +148,8 @@ _OBSERVE_THERMOSTAT_TRAITS = (
     weave_description_pb2.LabelSettingsTrait,
     weave_heartbeat_pb2.LivenessTrait,
     nest_located_pb2.DeviceLocatedSettingsTrait,
+    nest_located_pb2.LocatedAnnotationsTrait,
+    nest_located_pb2.CustomLocatedAnnotationsTrait,
 )
 
 # Protect-specific traits
@@ -180,6 +184,8 @@ _OBSERVE_PROTECT_TRAITS = (
     weave_description_pb2.LabelSettingsTrait,
     weave_heartbeat_pb2.LivenessTrait,
     nest_located_pb2.DeviceLocatedSettingsTrait,
+    nest_located_pb2.LocatedAnnotationsTrait,
+    nest_located_pb2.CustomLocatedAnnotationsTrait,
 )
 
 # Camera-specific traits
@@ -201,6 +207,8 @@ _OBSERVE_CAMERA_TRAITS = (
     weave_description_pb2.LabelSettingsTrait,
     weave_heartbeat_pb2.LivenessTrait,
     nest_located_pb2.DeviceLocatedSettingsTrait,
+    nest_located_pb2.LocatedAnnotationsTrait,
+    nest_located_pb2.CustomLocatedAnnotationsTrait,
 )
 
 # Structure-specific traits
@@ -211,6 +219,8 @@ _OBSERVE_STRUCTURE_TRAITS = (
     nest_structure_pb2.StructureLocationTrait,
     nest_structure_pb2.HomeInfoSettingsTrait,
     nest_located_pb2.DeviceLocatedSettingsTrait,
+    nest_located_pb2.LocatedAnnotationsTrait,
+    nest_located_pb2.CustomLocatedAnnotationsTrait,
     # Description / Identity (for Structure)
     weave_description_pb2.DeviceIdentityTrait,
     weave_description_pb2.LabelSettingsTrait,
