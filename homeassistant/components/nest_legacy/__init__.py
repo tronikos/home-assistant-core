@@ -7,9 +7,13 @@ import asyncio
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import DeviceEntry
+from homeassistant.helpers.typing import ConfigType
 
+from .const import DOMAIN
 from .coordinator import NestConfigEntry, NestCoordinator
+from .services import async_setup_services
 
 _PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -24,6 +28,14 @@ _PLATFORMS: list[Platform] = [
     Platform.SWITCH,
     Platform.WATER_HEATER,
 ]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the Nest Legacy integration."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: NestConfigEntry) -> bool:

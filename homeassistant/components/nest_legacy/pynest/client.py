@@ -50,6 +50,7 @@ from .models import (
 )
 from .protobuf_gen.nest.trait import (
     audio_pb2 as nest_audio_pb2,
+    guest_pb2 as nest_guest_pb2,
     history_pb2 as nest_history_pb2,
     hvac_pb2 as nest_hvac_pb2,
     located_pb2 as nest_located_pb2,
@@ -71,6 +72,7 @@ from .protobuf_gen.weave.trait import (
     description_pb2 as weave_description_pb2,
     heartbeat_pb2 as weave_heartbeat_pb2,
     power_pb2 as weave_power_pb2,
+    schedule_pb2 as weave_schedule_pb2,
     security_pb2 as weave_security_pb2,
 )
 
@@ -109,6 +111,8 @@ _OBSERVE_LOCK_TRAITS = (
     nest_located_pb2.DeviceLocatedSettingsTrait,
     nest_located_pb2.LocatedAnnotationsTrait,
     nest_located_pb2.CustomLocatedAnnotationsTrait,
+    # Guests
+    nest_guest_pb2.GuestsTrait,
 )
 
 # Thermostat-specific traits
@@ -1323,6 +1327,83 @@ class NestClient:
 
         # This should be unreachable due to the raise in the last retry attempt.
         raise PynestException("Command failed after all retry attempts")
+
+    async def async_get_user_schedule(
+        self,
+        device: NestDevice,
+        user_id: str,
+    ) -> v1_pb2.SendCommandResponse:
+        """Get a user's schedule on a device."""
+        req = weave_schedule_pb2.BasicUserSchedulesSettingsTrait.GetUserScheduleRequest(
+            userId=weave_common_pb2.ResourceId(resourceId=user_id),
+        )
+
+        command = v1_pb2.ResourceCommand(traitLabel="basic_user_schedules_settings")
+        command.command.Pack(req, type_url_prefix=_NESTLABS_TYPE_URL_PREFIX)
+        return await self._async_send_command(device, command)
+
+    async def async_set_user_schedule(
+        self,
+        device: NestDevice,
+        user_id: str,
+        daily_schedules: list[dict[str, Any]] | None = None,
+        timebox_schedules: list[dict[str, Any]] | None = None,
+    ) -> v1_pb2.SendCommandResponse:
+        """Set a user's schedule on a device."""
+        schedule = weave_schedule_pb2.BasicUserSchedulesSettingsTrait.BasicUserSchedule(
+            userId=weave_common_pb2.ResourceId(resourceId=user_id),
+        )
+
+        if daily_schedules:
+            for ds in daily_schedules:
+                item = weave_schedule_pb2.BasicUserSchedulesSettingsTrait.DailyRepeatingScheduleItem()
+                if "days_of_week" in ds:
+                    # Support both list of ints and single int
+                    days = ds["days_of_week"]
+                    if not isinstance(days, list):
+                        days = [days]
+                    item.daysOfWeek.extend(days)
+                if "start_time" in ds:
+                    st = ds["start_time"]
+                    if isinstance(st, dict):
+                        item.startTime.hour = st.get("hour", 0)
+                        item.startTime.minute = st.get("minute", 0)
+                        item.startTime.second = st.get("second", 0)
+                if "duration_seconds" in ds:
+                    item.duration.seconds = ds["duration_seconds"]
+                schedule.dailyRepeatingSchedules.append(item)
+
+        if timebox_schedules:
+            for ts in timebox_schedules:
+                sitem = weave_schedule_pb2.BasicUserSchedulesSettingsTrait.TimeboxScheduleItem()
+                if "start_time" in ts:
+                    sitem.startTime.seconds = ts["start_time"]
+                if "end_time" in ts:
+                    sitem.endTime.seconds = ts["end_time"]
+
+                schedule.timeBoxSchedules.append(sitem)
+
+        req = weave_schedule_pb2.BasicUserSchedulesSettingsTrait.SetUserScheduleRequest(
+            userSchedule=schedule,
+        )
+
+        command = v1_pb2.ResourceCommand(traitLabel="basic_user_schedules_settings")
+        command.command.Pack(req, type_url_prefix=_NESTLABS_TYPE_URL_PREFIX)
+        return await self._async_send_command(device, command)
+
+    async def async_delete_user_schedule(
+        self,
+        device: NestDevice,
+        user_id: str,
+    ) -> v1_pb2.SendCommandResponse:
+        """Delete a user's schedule from a device."""
+        req = weave_schedule_pb2.BasicUserSchedulesSettingsTrait.DeleteUserScheduleRequest(
+            userId=weave_common_pb2.ResourceId(resourceId=user_id),
+        )
+
+        command = v1_pb2.ResourceCommand(traitLabel="basic_user_schedules_settings")
+        command.command.Pack(req, type_url_prefix=_NESTLABS_TYPE_URL_PREFIX)
+        return await self._async_send_command(device, command)
 
     async def _async_update_trait_state(
         self, trait_update_request: v1_pb2.TraitUpdateStateRequest

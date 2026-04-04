@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from aiohttp import ClientError
+from google.protobuf.json_format import MessageToDict
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -43,6 +44,7 @@ from .pynest.exceptions import (
 )
 from .pynest.models import NestCamera, NestDevice, NestHeatLink, NestTempSensor
 from .pynest.parser import NestParser
+from .pynest.protobuf_gen.nest.trait import guest_pb2 as nest_guest_pb2
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -198,6 +200,46 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                 err,
             )
             raise HomeAssistantError from err
+
+    async def async_send_client_command(
+        self,
+        method_name: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Call a client method with auth retry handling."""
+        method = getattr(self.client, method_name)
+        try:
+            return await method(*args, **kwargs)
+        except NotAuthenticatedException:
+            _LOGGER.debug(
+                "Token expired during %s. Re-authenticating and retrying",
+                method_name,
+            )
+            try:
+                await self.async_reauthenticate(force=True)
+                return await method(*args, **kwargs)
+            except (ClientError, TimeoutError, PynestException) as err:
+                raise HomeAssistantError(
+                    "Retry failed after re-authentication"
+                ) from err
+        except (ClientError, TimeoutError, PynestException) as err:
+            _LOGGER.error("Error calling %s: %r", method_name, err)
+            raise HomeAssistantError from err
+
+    def get_guests(self) -> dict[str, list[dict[str, Any]]]:
+        """Return guests from the raw protobuf data, keyed by structure ID."""
+        result: dict[str, list[dict[str, Any]]] = {}
+        for resource_id, traits in self._raw_data.items():
+            if not isinstance(traits, dict):
+                continue
+            guests_trait = traits.get(nest_guest_pb2.GuestsTrait.DESCRIPTOR.full_name)
+            if guests_trait is None:
+                continue
+            guests_dict = MessageToDict(guests_trait)
+            if "guests" in guests_dict:
+                result[resource_id] = guests_dict["guests"]
+        return result
 
     def async_start_subscriber(self) -> None:
         """Start the background task to listen for updates."""

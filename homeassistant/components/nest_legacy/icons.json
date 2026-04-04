@@ -1,0 +1,16 @@
+{
+  "services": {
+    "delete_user_schedule": {
+      "service": "mdi:calendar-remove"
+    },
+    "get_user_schedule": {
+      "service": "mdi:calendar-account"
+    },
+    "list_guests": {
+      "service": "mdi:account-group"
+    },
+    "set_user_schedule": {
+      "service": "mdi:calendar-edit"
+    }
+  }
+}

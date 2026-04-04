@@ -280,5 +280,92 @@
         }
       }
     }
+  },
+  "selector": {
+    "days_of_week": {
+      "options": {
+        "friday": "[%key:common::time::friday%]",
+        "monday": "[%key:common::time::monday%]",
+        "saturday": "[%key:common::time::saturday%]",
+        "sunday": "[%key:common::time::sunday%]",
+        "thursday": "[%key:common::time::thursday%]",
+        "tuesday": "[%key:common::time::tuesday%]",
+        "wednesday": "[%key:common::time::wednesday%]"
+      }
+    }
+  },
+  "services": {
+    "delete_user_schedule": {
+      "description": "Deletes the access schedule for a user on a device.",
+      "fields": {
+        "device_id": {
+          "description": "The lock device to target.",
+          "name": "Lock"
+        },
+        "user_id": {
+          "description": "The user or guest resource ID (e.g., `GUEST_1234`).",
+          "name": "User ID"
+        }
+      },
+      "name": "Delete user schedule"
+    },
+    "get_user_schedule": {
+      "description": "Gets the access schedule for a user on a device.",
+      "fields": {
+        "device_id": {
+          "description": "The lock device to target.",
+          "name": "Lock"
+        },
+        "user_id": {
+          "description": "The user or guest resource ID (e.g., `GUEST_1234`).",
+          "name": "User ID"
+        }
+      },
+      "name": "Get user schedule"
+    },
+    "list_guests": {
+      "description": "Lists all guests configured on your Nest structures.",
+      "fields": {
+        "config_entry_id": {
+          "description": "The config entry of the Nest Legacy integration.",
+          "name": "Config entry"
+        }
+      },
+      "name": "List guests"
+    },
+    "set_user_schedule": {
+      "description": "Sets the access schedule for a user on a device.",
+      "fields": {
+        "days_of_week": {
+          "description": "The days of the week when access is allowed.",
+          "name": "Days of week"
+        },
+        "device_id": {
+          "description": "The lock device to target.",
+          "name": "Lock"
+        },
+        "duration": {
+          "description": "The length of the daily access window.",
+          "name": "Duration"
+        },
+        "end_timebox": {
+          "description": "The date and time when access expires.",
+          "name": "End date/time"
+        },
+        "start_time": {
+          "description": "The time of day when access starts.",
+          "name": "Start time"
+        },
+        "start_timebox": {
+          "description": "The date and time when access begins.",
+          "name": "Start date/time"
+        },
+        "user_id": {
+          "description": "The user or guest resource ID (e.g., `GUEST_1234`).",
+          "name": "User ID"
+        }
+      },
+      "name": "Set user schedule"
+    }
   }
 }

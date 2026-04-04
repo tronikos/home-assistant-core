@@ -1,0 +1,79 @@
+list_guests:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: nest_legacy
+get_user_schedule:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: nest_legacy
+          entity:
+            domain: lock
+    user_id:
+      required: true
+      example: GUEST_1234
+      selector:
+        text: null
+set_user_schedule:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: nest_legacy
+          entity:
+            domain: lock
+    user_id:
+      required: true
+      example: GUEST_1234
+      selector:
+        text: null
+    days_of_week:
+      required: false
+      selector:
+        select:
+          multiple: true
+          options:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+          translation_key: days_of_week
+    start_time:
+      required: false
+      selector:
+        time:
+    duration:
+      required: false
+      selector:
+        duration:
+    start_timebox:
+      required: false
+      selector:
+        datetime:
+    end_timebox:
+      required: false
+      selector:
+        datetime:
+delete_user_schedule:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: nest_legacy
+          entity:
+            domain: lock
+    user_id:
+      required: true
+      example: GUEST_1234
+      selector:
+        text: null
