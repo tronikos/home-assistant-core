@@ -1881,14 +1881,26 @@ class NestClient:
                 else nest_hvac_pb2.EcoModeStateTrait.EcoMode.ECO_MODE_INACTIVE
             )
 
-            cmd = v1_pb2.ResourceCommand(traitLabel="eco_mode")
-            cmd.command.Pack(
-                nest_hvac_pb2.EcoModeStateTrait.EcoModeChangeRequest(
-                    ecoMode=mode_enum, setAll=False
-                ),
+            eco_state_trait = _get_trait_copy(
+                current_traits, nest_hvac_pb2.EcoModeStateTrait
+            )
+            eco_state_trait.ecoMode = mode_enum
+
+            any_proto = google.protobuf.any_pb2.Any()
+            any_proto.Pack(
+                eco_state_trait,
                 type_url_prefix=_NESTLABS_TYPE_URL_PREFIX,
             )
-            await self._async_send_command(device, cmd)
+
+            req = v1_pb2.TraitUpdateStateRequest(
+                traitRequest=v1_pb2.TraitRequest(
+                    resourceId=device.object_key,
+                    traitLabel="eco_mode_state",
+                    requestId=str(uuid.uuid4()),
+                ),
+                state=any_proto,
+            )
+            await self._async_update_trait_state(req)
 
         # Handle HVAC Mode and Temperature together to prevent race condition overwriting trait states
         if (
