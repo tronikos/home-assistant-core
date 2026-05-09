@@ -529,38 +529,72 @@ class NestParser:
             )
             temp_scale = TemperatureScale.CELSIUS
 
+        # Derive the underlying (non-eco) HVAC mode from target_temperature_type.
+        # This is used as a fallback when eco enabled flags are absent/false.
+        target_temp_type = data.get("target_temperature_type", "off")
+        try:
+            underlying_hvac_mode = (
+                ThermostatHvacMode.RANGE
+                if target_temp_type == "eco"
+                else ThermostatHvacMode(target_temp_type)
+            )
+        except ValueError:
+            _LOGGER.warning(
+                "Unsupported value for ThermostatHvacMode: '%s'. Defaulting to OFF",
+                target_temp_type,
+            )
+            underlying_hvac_mode = ThermostatHvacMode.OFF
+
         is_eco = data.get("eco", {}).get("mode") in ("auto-eco", "manual-eco")
         if is_eco:
-            target_low = data.get("away_temperature_low")
-            target_high = data.get("away_temperature_high")
+            eco_low = data.get("away_temperature_low")
+            eco_high = data.get("away_temperature_high")
 
+            can_heat = data.get("can_heat", False)
+            can_cool = data.get("can_cool", False)
+
+            # Check explicit enabled flags first (present on most firmware).
+            # When both are absent/false, fall back to equipment capabilities so
+            # that a heat-only device is not incorrectly reported as RANGE.
+            # Note: do NOT AND flags with can_heat/can_cool here — check flags
+            # raw, then use capabilities only in the fallback branch. This mirrors
+            # the protobuf path in _parse_proto_targets_and_mode.
+            # Also: do NOT use underlying_hvac_mode as the fallback — when eco is
+            # active the REST API sets target_temperature_type to "eco", which the
+            # try/except above maps to RANGE, causing the same wrong-mode bug.
             heat_enabled = data.get("away_temperature_low_enabled", False)
             cool_enabled = data.get("away_temperature_high_enabled", False)
 
             if heat_enabled and not cool_enabled:
                 hvac_mode = ThermostatHvacMode.HEAT
-            elif not heat_enabled and cool_enabled:
+                target_temp = eco_low
+            elif cool_enabled and not heat_enabled:
                 hvac_mode = ThermostatHvacMode.COOL
-            elif heat_enabled and cool_enabled:
-                hvac_mode = ThermostatHvacMode.RANGE
+                target_temp = eco_high
+            elif can_heat and not can_cool:
+                # Neither flag set; deduce from hardware capabilities.
+                hvac_mode = ThermostatHvacMode.HEAT
+                target_temp = eco_low
+            elif can_cool and not can_heat:
+                hvac_mode = ThermostatHvacMode.COOL
+                target_temp = eco_high
             else:
-                hvac_mode = ThermostatHvacMode.OFF
+                # True heat+cool device with no usable flags.
+                hvac_mode = ThermostatHvacMode.RANGE
+                target_temp = (
+                    (eco_low + eco_high) / 2
+                    if eco_low is not None and eco_high is not None
+                    else None
+                )
+
+            # Always expose eco setpoints as low/high so the UI can show the range.
+            target_low = eco_low if can_heat else None
+            target_high = eco_high if can_cool else None
         else:
+            target_temp = data.get("target_temperature")
             target_low = data.get("target_temperature_low")
             target_high = data.get("target_temperature_high")
-
-            target_temp_type = data.get("target_temperature_type", "off")
-            if target_temp_type == "eco":
-                hvac_mode = ThermostatHvacMode.RANGE
-            else:
-                try:
-                    hvac_mode = ThermostatHvacMode(target_temp_type)
-                except ValueError:
-                    _LOGGER.warning(
-                        "Unsupported value for ThermostatHvacMode: '%s'. Defaulting to OFF",
-                        target_temp_type,
-                    )
-                    hvac_mode = ThermostatHvacMode.OFF
+            hvac_mode = underlying_hvac_mode
 
         current_temperature = data.get("current_temperature")
 
@@ -576,7 +610,7 @@ class NestParser:
                     current_temperature = sensor_data.get("current_temperature")
 
         current_temperature = _round_temp(current_temperature, temp_scale)
-        target_temperature = _round_temp(data.get("target_temperature"), temp_scale)
+        target_temperature = _round_temp(target_temp, temp_scale)
         target_low = _round_temp(target_low, temp_scale)
         target_high = _round_temp(target_high, temp_scale)
 
@@ -953,7 +987,11 @@ class NestParser:
         )
 
     def _parse_proto_targets_and_mode(
-        self, traits: dict[str, Any], is_eco_mode: bool
+        self,
+        traits: dict[str, Any],
+        is_eco_mode: bool,
+        can_heat: bool = True,
+        can_cool: bool = True,
     ) -> tuple[float | None, float | None, float | None, ThermostatHvacMode]:
         """Extract target temperatures and HVAC mode from traits."""
         target_temp = None
@@ -983,17 +1021,23 @@ class NestParser:
                 target_low = eco_settings.ecoTemperatureHeat.value.value
                 target_high = eco_settings.ecoTemperatureCool.value.value
 
-                # Determine "effective" target based on active flags if available or just overrides
-                if (
-                    eco_settings.ecoTemperatureHeat.enabled
-                    and not eco_settings.ecoTemperatureCool.enabled
-                ):
+                # Determine "effective" target based on active flags if available.
+                # If neither flag is set (e.g. older firmware that omits them), fall
+                # back to equipment capabilities so a heat-only device is not
+                # incorrectly reported as heat/cool (RANGE).
+                heat_flag = eco_settings.ecoTemperatureHeat.enabled
+                cool_flag = eco_settings.ecoTemperatureCool.enabled
+                if heat_flag and not cool_flag:
                     target_temp = target_low
                     hvac_mode = ThermostatHvacMode.HEAT
-                elif (
-                    not eco_settings.ecoTemperatureHeat.enabled
-                    and eco_settings.ecoTemperatureCool.enabled
-                ):
+                elif cool_flag and not heat_flag:
+                    target_temp = target_high
+                    hvac_mode = ThermostatHvacMode.COOL
+                elif can_heat and not can_cool:
+                    # Neither eco flag set; use equipment capabilities as fallback
+                    target_temp = target_low
+                    hvac_mode = ThermostatHvacMode.HEAT
+                elif can_cool and not can_heat:
                     target_temp = target_high
                     hvac_mode = ThermostatHvacMode.COOL
                 else:
@@ -1432,7 +1476,7 @@ class NestParser:
             target_temperature_low,
             target_temperature_high,
             hvac_mode,
-        ) = self._parse_proto_targets_and_mode(traits, is_eco_mode)
+        ) = self._parse_proto_targets_and_mode(traits, is_eco_mode, can_heat, can_cool)
 
         target_temperature = _round_temp(target_temperature, temp_scale)
         target_temperature_low = _round_temp(target_temperature_low, temp_scale)
