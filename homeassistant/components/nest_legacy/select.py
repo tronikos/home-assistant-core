@@ -1,7 +1,5 @@
 """Select platform for Nest."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 from bidict import bidict

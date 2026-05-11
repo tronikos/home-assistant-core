@@ -1,7 +1,5 @@
 """Fan platform for Nest thermostats."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature

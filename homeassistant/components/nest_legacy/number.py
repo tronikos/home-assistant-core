@@ -1,7 +1,5 @@
 """Number platform for Nest."""
 
-from __future__ import annotations
-
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant

@@ -1,7 +1,5 @@
 """Media source for Nest Legacy camera events."""
 
-from __future__ import annotations
-
 from collections import defaultdict
 import datetime
 import logging

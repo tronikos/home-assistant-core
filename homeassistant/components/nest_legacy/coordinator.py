@@ -1,7 +1,5 @@
 """Data update coordinator for the Nest Legacy integration."""
 
-from __future__ import annotations
-
 import asyncio
 from collections import deque
 import logging

@@ -1,7 +1,5 @@
 """Water heater platform for Nest Heat Link."""
 
-from __future__ import annotations
-
 import datetime
 from typing import Any
 
@@ -128,6 +126,7 @@ class NestHeatLinkWaterHeater(NestEntity[NestHeatLink], WaterHeaterEntity):
         """Return the optional state attributes."""
         attrs: dict[str, Any] = {
             "boiler_active": self.device.hot_water_active,
+            "hot_water_schedule_active": self.device.hot_water_control_active,
         }
         if self.device.hot_water_boost_time_to_end > 0:
             attrs["boost_timer_end"] = datetime.datetime.fromtimestamp(

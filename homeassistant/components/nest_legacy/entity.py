@@ -1,7 +1,5 @@
 """Base class for Nest entities."""
 
-from __future__ import annotations
-
 from typing import Any, Generic, TypeVar, cast
 
 from homeassistant.helpers import device_registry as dr
