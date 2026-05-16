@@ -32,6 +32,11 @@ class NestDevice:
     is_protobuf: bool = False
     battery_voltage: float | None = None
 
+    def __post_init__(self) -> None:
+        """Use the object key when the API omits a usable serial number."""
+        if not self.serial_number or not self.serial_number.strip():
+            object.__setattr__(self, "serial_number", self.object_key)
+
     @property
     def hardware_version(self) -> str | None:
         """Return hardware version if available."""

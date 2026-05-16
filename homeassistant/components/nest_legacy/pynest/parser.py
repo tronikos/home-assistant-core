@@ -2265,7 +2265,7 @@ class NestParser:
         if beacon_trait and beacon_trait.HasField("lastBeaconTime"):
             online = (
                 time.time() - _safe_to_seconds(beacon_trait.lastBeaconTime)
-            ) < 3600 * 4
+            ) < 3600 * 8
         elif liveness_trait:
             online = (
                 liveness_trait.status
