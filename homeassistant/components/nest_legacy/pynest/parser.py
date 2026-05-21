@@ -76,8 +76,8 @@ def _safe_to_seconds(
             return default
 
 
-def _round_temp(temp: Any, scale: TemperatureScale | None) -> float | None:
-    """Round temperature to nearest 0.5 C or 1 F based on the device's scale."""
+def _round_target_temp(temp: Any, scale: TemperatureScale | None) -> float | None:
+    """Round target temperature to nearest 0.5 C or 1 F based on the device's scale."""
     if temp is None:
         return None
     try:
@@ -88,6 +88,16 @@ def _round_temp(temp: Any, scale: TemperatureScale | None) -> float | None:
         temp_f = round(temp_float * 1.8 + 32.0)
         return (temp_f - 32.0) / 1.8
     return round(temp_float * 2.0) / 2.0
+
+
+def _round_current_temp(temp: Any) -> float | None:
+    """Parse sensor temperature without artificial rounding."""
+    if temp is None:
+        return None
+    try:
+        return float(temp)
+    except ValueError, TypeError:
+        return None
 
 
 def _scale_value(
@@ -607,10 +617,10 @@ class NestParser:
                     sensor_data = raw_data[sensor_key]
                     current_temperature = sensor_data.get("current_temperature")
 
-        current_temperature = _round_temp(current_temperature, temp_scale)
-        target_temperature = _round_temp(target_temp, temp_scale)
-        target_low = _round_temp(target_low, temp_scale)
-        target_high = _round_temp(target_high, temp_scale)
+        current_temperature = _round_current_temp(current_temperature)
+        target_temperature = _round_target_temp(target_temp, temp_scale)
+        target_low = _round_target_temp(target_low, temp_scale)
+        target_high = _round_target_temp(target_high, temp_scale)
 
         fan_timer_speed_str = data.get("fan_timer_speed", "stage0").replace("stage", "")
         try:
@@ -645,8 +655,8 @@ class NestParser:
             online=online,
             temperature_scale=temp_scale,
             current_temperature=current_temperature,
-            backplate_temperature=_round_temp(
-                value.get("backplate_temperature"), temp_scale
+            backplate_temperature=_round_current_temp(
+                value.get("backplate_temperature")
             ),
             target_temperature=target_temperature,
             target_temperature_low=target_low,
@@ -684,11 +694,11 @@ class NestParser:
             hot_water_mode=HotWaterMode(data.get("hot_water_mode", "off")),
             hot_water_away_enabled=data.get("hot_water_away_enabled", False),
             hot_water_boost_time_to_end=data.get("hot_water_boost_time_to_end", 0),
-            hot_water_temperature=_round_temp(
+            hot_water_temperature=_round_target_temp(
                 data.get("hot_water_temperature"), temp_scale
             ),
-            current_water_temperature=_round_temp(
-                data.get("current_water_temperature"), temp_scale
+            current_water_temperature=_round_current_temp(
+                data.get("current_water_temperature")
             ),
         )
 
@@ -723,18 +733,6 @@ class NestParser:
                     is_active = True
                 break
 
-        temp_scale = TemperatureScale.CELSIUS
-        if associated_thermostat and associated_thermostat in raw_data:
-            val = (
-                raw_data[associated_thermostat]
-                .get("value", {})
-                .get("temperature_scale")
-                if "value" in raw_data[associated_thermostat]
-                else raw_data[associated_thermostat].get("temperature_scale")
-            )
-            if val == "F":
-                temp_scale = TemperatureScale.FAHRENHEIT
-
         return NestTempSensor(
             object_key=key,
             serial_number=value.get("serial_number", key.split(".")[1]),
@@ -743,9 +741,7 @@ class NestParser:
             model=value.get("model"),
             software_version=value.get("software_version"),
             online=(time.time() - value.get("last_updated_at", 0)) < 3600 * 4,
-            current_temperature=_round_temp(
-                value.get("current_temperature"), temp_scale
-            ),
+            current_temperature=_round_current_temp(value.get("current_temperature")),
             battery_level=value.get("battery_level", 0.0),
             battery_voltage=None,  # REST API reports percentage, not voltage
             associated_thermostat_object_key=associated_thermostat,
@@ -1257,8 +1253,8 @@ class NestParser:
             hot_water_active = hw_trait.boilerActive
             hot_water_control_active = hw_trait.controlActive
             if hw_trait.HasField("temperature"):
-                current_water_temperature = _round_temp(
-                    hw_trait.temperature.value, temp_scale
+                current_water_temperature = _round_current_temp(
+                    hw_trait.temperature.value
                 )
 
         if hw_settings_trait:
@@ -1267,7 +1263,7 @@ class NestParser:
                     hw_settings_trait.boostTimerEnd
                 )
             if hw_settings_trait.HasField("temperature"):
-                hot_water_temperature = _round_temp(
+                hot_water_temperature = _round_target_temp(
                     hw_settings_trait.temperature.value, temp_scale
                 )
 
@@ -1431,7 +1427,7 @@ class NestParser:
             "current_temperature"
         ) or traits.get(nest_sensor_pb2.TemperatureTrait.DESCRIPTOR.full_name)
         current_temperature = (
-            _round_temp(temp_trait.temperatureValue.temperature.value, temp_scale)
+            _round_current_temp(temp_trait.temperatureValue.temperature.value)
             if temp_trait and temp_trait.HasField("temperatureValue")
             else None
         )
@@ -1442,9 +1438,7 @@ class NestParser:
             "backplate_temperature"
         )
         backplate_temperature = (
-            _round_temp(
-                backplate_temp_trait.temperatureValue.temperature.value, temp_scale
-            )
+            _round_current_temp(backplate_temp_trait.temperatureValue.temperature.value)
             if backplate_temp_trait
             and backplate_temp_trait.HasField("temperatureValue")
             else None
@@ -1480,9 +1474,11 @@ class NestParser:
             hvac_mode,
         ) = self._parse_proto_targets_and_mode(traits, is_eco_mode, can_heat, can_cool)
 
-        target_temperature = _round_temp(target_temperature, temp_scale)
-        target_temperature_low = _round_temp(target_temperature_low, temp_scale)
-        target_temperature_high = _round_temp(target_temperature_high, temp_scale)
+        target_temperature = _round_target_temp(target_temperature, temp_scale)
+        target_temperature_low = _round_target_temp(target_temperature_low, temp_scale)
+        target_temperature_high = _round_target_temp(
+            target_temperature_high, temp_scale
+        )
 
         # Humidity
         humidity_trait: nest_sensor_pb2.HumidityTrait | None = traits.get(
@@ -2227,22 +2223,6 @@ class NestParser:
                     is_active = True
                 break
 
-        temp_scale = TemperatureScale.CELSIUS
-        if associated_thermostat and associated_thermostat in raw_data:
-            thermostat_traits = raw_data[associated_thermostat]
-            display_trait = thermostat_traits.get(
-                nest_hvac_pb2.DisplaySettingsTrait.DESCRIPTOR.full_name
-            )
-            if display_trait:
-                try:
-                    if (
-                        display_trait.temperatureScale
-                        == nest_hvac_pb2.DisplaySettingsTrait.TemperatureScale.TEMPERATURE_SCALE_F
-                    ):
-                        temp_scale = TemperatureScale.FAHRENHEIT
-                except AttributeError:
-                    pass
-
         # Identity
         identity_trait: weave_description_pb2.DeviceIdentityTrait | None = traits.get(
             weave_description_pb2.DeviceIdentityTrait.DESCRIPTOR.full_name
@@ -2318,8 +2298,8 @@ class NestParser:
             location=_get_protobuf_location(traits, wheres_map),
             model="Temperature Sensor",
             online=online,
-            current_temperature=_round_temp(
-                temp_trait.temperatureValue.temperature.value, temp_scale
+            current_temperature=_round_current_temp(
+                temp_trait.temperatureValue.temperature.value
             ),
             battery_level=battery_level,
             battery_voltage=battery_voltage,

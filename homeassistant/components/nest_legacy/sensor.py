@@ -129,6 +129,7 @@ _DESCRIPTIONS: tuple[NestSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
         device_types=(NestTempSensor, NestThermostat, NestHeatLink),
     ),
     # Thermostat
@@ -158,6 +159,7 @@ _DESCRIPTIONS: tuple[NestSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
         entity_category=EntityCategory.DIAGNOSTIC,
         device_types=(NestThermostat,),
     ),
