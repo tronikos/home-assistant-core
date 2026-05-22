@@ -5,6 +5,8 @@ from typing import Any
 from bidict import bidict
 
 from homeassistant.components.climate import (
+    FAN_AUTO,
+    FAN_ON,
     PRESET_ECO,
     PRESET_NONE,
     ClimateEntity,
@@ -15,6 +17,7 @@ from homeassistant.components.climate import (
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_HALVES, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .coordinator import NestConfigEntry, NestCoordinator
 from .entity import NestEntity
@@ -84,6 +87,8 @@ class NestClimate(NestEntity[NestThermostat], ClimateEntity):
         )
         if device.has_dehumidifier or device.has_humidifier:
             features |= ClimateEntityFeature.TARGET_HUMIDITY
+        if device.has_fan:
+            features |= ClimateEntityFeature.FAN_MODE
 
         self._attr_supported_features = features
         self._attr_preset_modes = [PRESET_NONE, PRESET_ECO]
@@ -167,6 +172,22 @@ class NestClimate(NestEntity[NestThermostat], ClimateEntity):
         """Return the current preset mode, e.g., home, away, temp."""
         return PRESET_ECO if self.device.is_eco_mode else PRESET_NONE
 
+    @property
+    def fan_mode(self) -> str | None:
+        """Return the current fan mode."""
+        if not self.device.has_fan:
+            return None
+        if self.device.fan_timer_timeout > int(dt_util.utcnow().timestamp()):
+            return FAN_ON
+        return FAN_AUTO
+
+    @property
+    def fan_modes(self) -> list[str] | None:
+        """Return the list of available fan modes."""
+        if self.device.has_fan:
+            return [FAN_AUTO, FAN_ON]
+        return None
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
         payload: dict[str, Any] = {}
@@ -201,3 +222,16 @@ class NestClimate(NestEntity[NestThermostat], ClimateEntity):
     async def async_set_humidity(self, humidity: int) -> None:
         """Set new target humidity."""
         await self._set_device_data({"target_humidity": humidity})
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        """Set new target fan mode."""
+        if not self.device.has_fan:
+            return
+        fan_on = fan_mode == FAN_ON
+        timeout = (
+            int(dt_util.utcnow().timestamp()) + self.device.fan_duration
+            if fan_on
+            else 0
+        )
+        payload: dict[str, Any] = {"fan_timer_timeout": timeout}
+        await self._set_device_data(payload)
