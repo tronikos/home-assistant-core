@@ -2479,6 +2479,7 @@ class NestClient:
                 timeout=ClientTimeout(total=_OBSERVE_TIMEOUT, connect=_CONNECT_TIMEOUT),
             ) as response:
                 response.raise_for_status()
+                yield {}  # Signal successful connection immediately
                 buffer = bytearray()
 
                 while True:

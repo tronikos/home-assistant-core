@@ -97,8 +97,42 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
         self._last_event_poll_success_time: float | None = None
         self.first_protobuf_update_received = asyncio.Event()
         self._auth_lock = asyncio.Lock()
+        self.subscriber_healthy = True
+        self.observer_healthy = True
         self._subscriber_unavailable_logged = False
         self._observer_unavailable_logged = False
+
+    def _update_coordinator_availability(self) -> None:
+        """Update the coordinator's update success status based on connection states."""
+        sub_active = (
+            self._subscribe_task is not None and not self._subscribe_task.done()
+        )
+        obs_active = (
+            self._observe_task is not None
+            and not self._observe_task.done()
+            and any(device.is_protobuf for device in self.data.values())
+        )
+
+        any_stream_active = sub_active or obs_active
+        all_active_streams_down = True
+
+        if sub_active and self.subscriber_healthy:
+            all_active_streams_down = False
+        if obs_active and self.observer_healthy:
+            all_active_streams_down = False
+
+        if any_stream_active and all_active_streams_down:
+            if self.last_update_success:
+                self.async_set_update_error(
+                    UpdateFailed("All Nest connection streams are offline")
+                )
+        elif not self.last_update_success:
+            # Restores global availability and triggers all listeners
+            self.async_set_updated_data(self.data)
+        else:
+            # Global availability hasn't changed, but individual stream health might have.
+            # Force entities to re-evaluate their granular availability.
+            self.async_update_listeners()
 
     def get_raw_data_for_diagnostics(self) -> dict[str, Any]:
         """Return raw data, useful for diagnostics."""
@@ -281,26 +315,30 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
             if old_val[k] != new_val[k]:
                 _LOGGER.debug("  ~ %s: %s -> %s", k, old_val[k], new_val[k])
 
-    async def _async_subscribe_for_updates(self) -> None:
+    async def _async_subscribe_for_updates(self) -> None:  # noqa: C901
         """Listen for data updates from the Nest API."""
         failures = 0
         force_reauth = False
         while True:
             try:
-                if self.client.is_expired() or force_reauth:
+                if self.client.is_expired() or force_reauth or failures >= 3:
                     _LOGGER.debug("Re-authenticating Nest session")
-                    await self.async_reauthenticate(force_reauth)
+                    await self.async_reauthenticate(force_reauth or failures >= 3)
                     force_reauth = False  # Reset on success
 
                 updates = await self.client.async_subscribe_for_updates()
                 failures = 0  # Reset on success
 
-                if not updates:
-                    continue
+                if not self.subscriber_healthy:
+                    self.subscriber_healthy = True
+                    self._update_coordinator_availability()
 
                 if self._subscriber_unavailable_logged:
-                    _LOGGER.info("Nest subscriber connection restored")
+                    _LOGGER.info("Nest JSON stream connection restored")
                     self._subscriber_unavailable_logged = False
+
+                if not updates:
+                    continue
 
                 camera_property_tasks = []
                 for key, value in updates.items():
@@ -366,26 +404,42 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
             except NotAuthenticatedException:
                 _LOGGER.debug("Subscriber not authenticated. Re-authenticating")
                 force_reauth = True
-                await asyncio.sleep(INITIAL_BACKOFF_SECONDS)
+                failures += 1
+                if failures >= 3 and self.subscriber_healthy:
+                    self.subscriber_healthy = False
+                    self._update_coordinator_availability()
+                await asyncio.sleep(
+                    min(MAX_BACKOFF_SECONDS, INITIAL_BACKOFF_SECONDS * (2**failures))
+                )
                 continue
             except BadCredentialsException:
                 _LOGGER.error("Bad credentials, re-authentication required")
+                if self.subscriber_healthy:
+                    self.subscriber_healthy = False
+                    self._update_coordinator_availability()
                 self.config_entry.async_start_reauth(self.hass)
                 self.async_stop_subscriber()
                 return
             except TimeoutError, EmptyResponseException:
                 _LOGGER.debug("Subscriber connection timeout (expected). Reconnecting")
                 failures = 0
+                if not self.subscriber_healthy:
+                    self.subscriber_healthy = True
+                    self._update_coordinator_availability()
                 continue
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001
                 delay = min(
                     MAX_BACKOFF_SECONDS,
                     INITIAL_BACKOFF_SECONDS * (2**failures),
                 )
                 failures += 1
+                if failures >= 3 and self.subscriber_healthy:
+                    self.subscriber_healthy = False
+                    self._update_coordinator_availability()
+
                 if isinstance(err, (ClientError, PynestException)):
                     if not self._subscriber_unavailable_logged:
-                        _LOGGER.warning(
+                        _LOGGER.info(
                             "Subscriber connection error: %r. Retrying in %ds",
                             err,
                             delay,
@@ -398,7 +452,7 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                             delay,
                         )
                 elif not self._subscriber_unavailable_logged:
-                    _LOGGER.exception(
+                    _LOGGER.info(
                         "Unknown exception in subscriber. Retrying in %ds", delay
                     )
                     self._subscriber_unavailable_logged = True
@@ -411,23 +465,30 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                 await asyncio.sleep(delay)
                 continue
 
-    async def _async_observe_for_updates(self) -> None:
+    async def _async_observe_for_updates(self) -> None:  # noqa: C901
         """Listen for protobuf data updates from the Nest API."""
         failures = 0
         force_reauth = False
         while True:
             try:
-                if self.client.is_expired() or force_reauth:
+                if self.client.is_expired() or force_reauth or failures >= 3:
                     _LOGGER.debug("Re-authenticating Nest session for observe")
-                    await self.async_reauthenticate(force_reauth)
+                    await self.async_reauthenticate(force_reauth or failures >= 3)
                     force_reauth = False  # Reset on success
 
                 async for updates in self.client.async_observe_for_updates():
                     failures = 0  # Reset on success
 
+                    if not self.observer_healthy:
+                        self.observer_healthy = True
+                        self._update_coordinator_availability()
+
                     if self._observer_unavailable_logged:
-                        _LOGGER.info("Nest observer connection restored")
+                        _LOGGER.info("Nest Protobuf stream connection restored")
                         self._observer_unavailable_logged = False
+
+                    if not updates:
+                        continue
 
                     # Deep merge protobuf updates into raw_data
                     for resource_id, traits in updates.items():
@@ -499,24 +560,37 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
             except NotAuthenticatedException:
                 _LOGGER.debug("Observer not authenticated. Re-authenticating")
                 force_reauth = True
-                await asyncio.sleep(INITIAL_BACKOFF_SECONDS)
+                failures += 1
+                if failures >= 3 and self.observer_healthy:
+                    self.observer_healthy = False
+                    self._update_coordinator_availability()
+                await asyncio.sleep(
+                    min(MAX_BACKOFF_SECONDS, INITIAL_BACKOFF_SECONDS * (2**failures))
+                )
                 continue
             except BadCredentialsException:
                 _LOGGER.error(
                     "Bad credentials for observer, re-authentication required"
                 )
+                if self.observer_healthy:
+                    self.observer_healthy = False
+                    self._update_coordinator_availability()
                 self.config_entry.async_start_reauth(self.hass)
                 self.async_stop_subscriber()
                 return
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001
                 delay = min(
                     MAX_BACKOFF_SECONDS,
                     INITIAL_BACKOFF_SECONDS * (2**failures),
                 )
                 failures += 1
+                if failures >= 3 and self.observer_healthy:
+                    self.observer_healthy = False
+                    self._update_coordinator_availability()
+
                 if isinstance(err, (ClientError, TimeoutError, PynestException)):
                     if not self._observer_unavailable_logged:
-                        _LOGGER.warning(
+                        _LOGGER.info(
                             "Observer connection error: %r. Retrying in %ds", err, delay
                         )
                         self._observer_unavailable_logged = True
@@ -525,7 +599,7 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                             "Observer connection error: %r. Retrying in %ds", err, delay
                         )
                 elif not self._observer_unavailable_logged:
-                    _LOGGER.exception(
+                    _LOGGER.info(
                         "Unknown exception in observer. Retrying in %ds", delay
                     )
                     self._observer_unavailable_logged = True

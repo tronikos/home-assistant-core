@@ -13,7 +13,7 @@ from .pynest.models import NestDevice
 DeviceT = TypeVar("DeviceT", bound=NestDevice)
 
 
-class NestEntity(CoordinatorEntity[NestCoordinator], Generic[DeviceT]):
+class NestEntity(CoordinatorEntity[NestCoordinator], Generic[DeviceT]):  # noqa: UP046
     """Base class for Nest entities."""
 
     _attr_attribution = ATTRIBUTION
@@ -46,10 +46,19 @@ class NestEntity(CoordinatorEntity[NestCoordinator], Generic[DeviceT]):
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
+        # Check global coordinator offline state
+        if not super().available:
+            return False
+
+        # Granular check based on the update pathway of the specific device
+        if self._device.is_protobuf:
+            if not self.coordinator.observer_healthy:
+                return False
+        elif not self.coordinator.subscriber_healthy:
+            return False
+
         return (
-            super().available
-            and self._device.serial_number in self.coordinator.data
-            and self.device.online
+            self._device.serial_number in self.coordinator.data and self.device.online
         )
 
     def generate_device_info(self) -> DeviceInfo:
