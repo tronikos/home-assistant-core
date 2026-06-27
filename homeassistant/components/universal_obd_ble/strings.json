@@ -1,0 +1,84 @@
+{
+  "config": {
+    "abort": {
+      "no_characteristics_found": "Could not discover any Bluetooth characteristics on this device. Verify it is an OBD-II adapter.",
+      "no_devices_found": "No unconfigured OBD BLE devices found. Ensure your adapter is powered and in range."
+    },
+    "error": {
+      "device_not_found": "Could not establish an over-the-air link to the device. Verify it is powered.",
+      "invalid_json": "The configuration profile contains invalid JSON. Please correct it to proceed."
+    },
+    "step": {
+      "connection": {
+        "data": {
+          "uuid_read": "Read (RX) Characteristic UUID",
+          "uuid_write": "Write (TX) Characteristic UUID"
+        },
+        "description": "Auto-discovery failed or no connection could be established. Please select the correct Bluetooth read (RX) and write (TX) characteristics discovered on your adapter.",
+        "title": "Configure Connection Characteristics"
+      },
+      "editor": {
+        "data": {
+          "profile": "WiCAN Profile JSON"
+        },
+        "description": "Adjust or paste your customized WiCAN JSON configuration profile directly in the editor below.",
+        "title": "Tweak WiCAN Profile"
+      },
+      "polling": {
+        "data": {
+          "fast_poll": "Active Polling Interval (seconds)",
+          "slow_poll": "Idle Polling Interval (seconds)",
+          "voltage_check": "Voltage Checking Mode",
+          "voltage_grace_seconds": "Post-Shutdown Grace Period (seconds)",
+          "voltage_off_threshold": "Ignition Off Threshold (V)",
+          "voltage_on_threshold": "Ignition On Threshold (V)",
+          "xs_poll": "Out of Range Connection Sweep (seconds)"
+        },
+        "description": "Adjust polling frequencies and active ignition voltage levels to protect your vehicle's 12V auxiliary battery.",
+        "title": "Tuning & Battery Protection"
+      },
+      "profile": {
+        "data": {
+          "car": "Vehicle Model"
+        },
+        "description": "Choose a vehicle profile. You can fetch the latest community profiles from GitHub or use local fallback configurations.",
+        "title": "Select Vehicle Profile"
+      },
+      "user": {
+        "data": {
+          "address": "Bluetooth Address"
+        },
+        "description": "Please select your ELM327 Bluetooth device from the discovered list below.",
+        "title": "Select OBD2 BLE Device"
+      }
+    }
+  },
+  "exceptions": {
+    "missing_unique_id": {
+      "message": "Device registration failed: Unique Bluetooth MAC address is missing."
+    }
+  },
+  "options": {
+    "error": {
+      "invalid_json": "The configuration profile contains invalid JSON. Please correct it to proceed."
+    },
+    "step": {
+      "init": {
+        "data": {
+          "fast_poll": "Active Polling Interval (seconds)",
+          "profile": "WiCAN Profile JSON",
+          "slow_poll": "Idle Polling Interval (seconds)",
+          "uuid_read": "Read (RX) Characteristic UUID",
+          "uuid_write": "Write (TX) Characteristic UUID",
+          "voltage_check": "Voltage Checking Mode",
+          "voltage_grace_seconds": "Post-Shutdown Grace Period (seconds)",
+          "voltage_off_threshold": "Ignition Off Threshold (V)",
+          "voltage_on_threshold": "Ignition On Threshold (V)",
+          "xs_poll": "Out of Range Connection Sweep (seconds)"
+        },
+        "description": "Adjust the configuration profile or update your battery-safe active states.",
+        "title": "Tuning & Profiles Menu"
+      }
+    }
+  }
+}

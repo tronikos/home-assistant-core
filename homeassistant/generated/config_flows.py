@@ -842,6 +842,7 @@ FLOWS = {
         "unifi_direct",
         "unifi_discovery",
         "unifiprotect",
+        "universal_obd_ble",
         "upb",
         "upcloud",
         "upnp",

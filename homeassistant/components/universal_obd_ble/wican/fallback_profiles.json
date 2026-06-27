@@ -1,0 +1,100 @@
+[
+  {
+    "car_model": "VW: e-Golf 2019 (Custom)",
+    "init": "ATSP6;ATST96;",
+    "pids": [
+      {
+        "parameters": [
+          {
+            "class": "battery",
+            "expression": "B4/2.5",
+            "name": "SOC BMS",
+            "unit": "%"
+          },
+          {
+            "class": "battery",
+            "expression": "((B4/2.5)-8.0)/0.88",
+            "name": "SOC Display",
+            "unit": "%"
+          }
+        ],
+        "pid": "22028C1",
+        "pid_init": "ATSH7E5;ATCRA7ED;"
+      },
+      {
+        "parameters": [
+          {
+            "class": "battery",
+            "expression": "([B5:B6])/100.0",
+            "name": "SOC Instrument Cluster",
+            "unit": "%"
+          }
+        ],
+        "pid": "2211642",
+        "pid_init": "ATSH7E0;ATCRA7E8;"
+      },
+      {
+        "parameters": [
+          {
+            "class": "voltage",
+            "expression": "([B4:B5])/4",
+            "name": "DC Battery Voltage",
+            "unit": "V"
+          }
+        ],
+        "pid": "221E3B1",
+        "pid_init": "ATSH7E5;ATCRA7ED;"
+      },
+      {
+        "parameters": [
+          {
+            "class": "distance",
+            "expression": "[B6:B8]",
+            "name": "Odometer",
+            "unit": "km"
+          }
+        ],
+        "pid": "2202BD2",
+        "pid_init": "ATSH7E5;ATCRA7ED;"
+      }
+    ]
+  },
+  {
+    "car_model": "Generic OBD2 (Mode 01)",
+    "init": "ATSP6;",
+    "pids": [
+      {
+        "parameters": [
+          {
+            "expression": "([B3:B4])*0.25",
+            "name": "Engine RPM",
+            "unit": "RPM"
+          }
+        ],
+        "pid": "010C1"
+      },
+      {
+        "parameters": [
+          {
+            "class": "speed",
+            "expression": "B3",
+            "name": "Vehicle Speed",
+            "unit": "km/h"
+          }
+        ],
+        "pid": "010D1"
+      },
+      {
+        "parameters": [
+          {
+            "class": "temperature",
+            "expression": "B3-40",
+            "name": "Engine Coolant Temp",
+            "unit": "°C"
+          }
+        ],
+        "pid": "01051"
+      }
+    ]
+  }
+]

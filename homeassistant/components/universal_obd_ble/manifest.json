@@ -1,0 +1,21 @@
+{
+  "domain": "universal_obd_ble",
+  "name": "Universal OBD BLE",
+  "bluetooth": [
+    { "service_uuid": "0000ffe0-0000-1000-8000-00805f9b34fb" },
+    { "service_uuid": "0000fff0-0000-1000-8000-00805f9b34fb" },
+    { "service_uuid": "000018f0-0000-1000-8000-00805f9b34fb" }
+  ],
+  "codeowners": ["@tronikos"],
+  "config_flow": true,
+  "dependencies": ["bluetooth", "bluetooth_adapters"],
+  "documentation": "https://www.home-assistant.io/integrations/universal_obd_ble",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "quality_scale": "bronze",
+  "requirements": [
+    "py-obdii==0.10.3b0",
+    "bleak==3.0.2",
+    "bleak-retry-connector==4.7.0"
+  ]
+}
