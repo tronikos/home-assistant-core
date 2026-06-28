@@ -21,6 +21,10 @@ CONF_ATRV_SUPPORTED: Final = "atrv_supported"
 CONF_UUID_READ: Final = "uuid_read"
 CONF_UUID_WRITE: Final = "uuid_write"
 
+CONF_COMMANDS: Final = "commands"
+CONF_UNIT: Final = "unit"
+CONF_STATE_CLASS: Final = "state_class"
+
 DEFAULT_UUID_READ: Final = "0000fff1-0000-1000-8000-00805f9b34fb"
 DEFAULT_UUID_WRITE: Final = "0000fff2-0000-1000-8000-00805f9b34fb"
 
@@ -39,3 +43,58 @@ class PollingState:
     CAR_ON = "car_on"
     GRACE_PERIOD = "grace_period"
     CAR_OFF = "car_off"
+
+
+ICON_KEYWORDS: Final[dict[str, str]] = {
+    "rpm": "mdi:engine",
+    "speed": "mdi:speedometer",
+    "velocity": "mdi:speedometer",
+    "temp": "mdi:thermometer",
+    "temperature": "mdi:thermometer",
+    "coolant": "mdi:thermometer",
+    "voltage": "mdi:sine-wave",
+    "volt": "mdi:sine-wave",
+    "v": "mdi:sine-wave",
+    "battery": "mdi:battery",
+    "current": "mdi:current-ac",
+    "pressure": "mdi:gauge",
+    "bar": "mdi:gauge",
+    "psi": "mdi:gauge",
+    "kpa": "mdi:gauge",
+    "vacuum": "mdi:gauge-empty",
+    "fuel": "mdi:gas-station",
+    "ethanol": "mdi:gas-station",
+    "rate": "mdi:gas-station-outline",
+    "level": "mdi:water-percent",
+    "ratio": "mdi:aspect-ratio",
+    "equivalence": "mdi:aspect-ratio",
+    "maf": "mdi:air-filter",
+    "flow": "mdi:air-filter",
+    "air": "mdi:air-conditioner",
+    "throttle": "mdi:speedometer",
+    "egr": "mdi:pipe-valve",
+    "sensor": "mdi:leak",
+    "sensors": "mdi:leak",
+    "o2": "mdi:molecule",
+    "nox": "mdi:smog",
+    "particulate": "mdi:scooter",
+    "dpf": "mdi:smoke-detector-alert",
+    "catalyst": "mdi:factory",
+    "time": "mdi:clock-outline",
+    "runtime": "mdi:timer-outline",
+    "count": "mdi:counter",
+    "counters": "mdi:counter",
+    "distance": "mdi:map-marker-distance",
+    "mil": "mdi:engine-outline",
+    "odometer": "mdi:counter",
+    "load": "mdi:weight",
+    "torque": "mdi:wrench",
+    "trim": "mdi:tune",
+    "trims": "mdi:tune",
+    "advance": "mdi:angle-acute",
+    "vin": "mdi:card-account-details",
+    "id": "mdi:identifier",
+    "cvn": "mdi:shield-check",
+    "dtc": "mdi:alert-octagon",
+    "clear": "mdi:alert-circle-check",
+}

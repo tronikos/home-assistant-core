@@ -8,7 +8,7 @@ from typing import Any
 from aiohttp import ClientTimeout
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
-from obdii import Command, Connection, Mode, Response
+from obdii import Command, Connection, Mode, Response, commands as veh_commands
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -17,7 +17,8 @@ from homeassistant.components.bluetooth import (
     async_ble_device_from_address,
     async_discovered_service_info,
 )
-from homeassistant.const import CONF_ADDRESS
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+from homeassistant.const import CONF_ADDRESS, CONF_COMMAND, CONF_DEVICE_CLASS, CONF_ICON
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -25,10 +26,13 @@ from homeassistant.helpers.selector import SelectOptionDict
 
 from .const import (
     CONF_ATRV_SUPPORTED,
+    CONF_COMMANDS,
     CONF_FAST_POLL,
     CONF_GRACE_PERIOD,
     CONF_PROFILE,
     CONF_SLOW_POLL,
+    CONF_STATE_CLASS,
+    CONF_UNIT,
     CONF_UUID_READ,
     CONF_UUID_WRITE,
     CONF_VOLTAGE_CHECK,
@@ -46,6 +50,12 @@ from .const import (
     DOMAIN,
 )
 from .obdii.transport_ble import TransportBLE
+from .sensor import (
+    get_list_of_units,
+    propose_icon_from_command,
+    propose_sensor_device_class,
+    propose_sensor_state_class,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -76,6 +86,9 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._uuid_read: str = DEFAULT_UUID_READ
         self._uuid_write: str = DEFAULT_UUID_WRITE
         self._discovered_characteristics: list[BleakGATTCharacteristic] = []
+        self._selected_commands: list[Command] = []
+        self._configured_commands: list[dict[str, str | None]] = []
+        self._command: Command | None = None
 
     def _test_connection_sync(
         self, ble_device, uuid_write=None, uuid_read=None
@@ -92,7 +105,6 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             conn = Connection(transport)
 
-            # Fetch resolved UUIDs from transport if auto-discovered
             self._uuid_write = transport.config.get("uuid_write", self._uuid_write)
             self._uuid_read = transport.config.get("uuid_read", self._uuid_read)
 
@@ -209,10 +221,10 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="no_characteristics_found")
 
         options: list[SelectOptionDict] = [
-            SelectOptionDict(
-                value=char.uuid,
-                label=f"{char.description} ({char.uuid.split('-')[0]})",
-            )
+            {
+                "value": char.uuid,
+                "label": f"{char.description} ({char.uuid.split('-')[0]})",
+            }
             for char in self._discovered_characteristics
         ]
 
@@ -274,14 +286,24 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
 
         if user_input is not None:
-            car = self.profiles[user_input["car"]]
+            car_model = user_input["car"]
+            if car_model == "none":
+                self.selected_profile_json = "{}"
+                return await self.async_step_standard_commands_select()
+
+            car = self.profiles[car_model]
             self.selected_profile_json = json.dumps(car, indent=2)
             return await self.async_step_editor()
+
+        options = {
+            "none": "None / Standard OBD-II Only",
+            **{k: k for k in self.profiles},
+        }
 
         return self.async_show_form(
             step_id="profile",
             data_schema=vol.Schema(
-                {vol.Required("car"): vol.In(list(self.profiles.keys()))}
+                {vol.Required("car", default="none"): vol.In(options)}
             ),
         )
 
@@ -294,7 +316,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 profile_data = json.loads(user_input[CONF_PROFILE])
                 self.selected_profile_json = profile_data
-                return await self.async_step_polling()
+                return await self.async_step_standard_commands_select()
             except json.JSONDecodeError:
                 errors["base"] = "invalid_json"
                 self.selected_profile_json = user_input[CONF_PROFILE]
@@ -313,6 +335,141 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_standard_commands_select(
+        self, user_input=None
+    ) -> config_entries.ConfigFlowResult:
+        """Select standard OBD-II telemetry parameters to monitor."""
+        if user_input is not None:
+            self._selected_commands = [
+                veh_commands[cmd] for cmd in user_input[CONF_COMMANDS]
+            ]
+            self._configured_commands = []
+            if self._selected_commands:
+                return await self.async_step_standard_commands_config()
+            return await self.async_step_polling()
+
+        commands = [
+            veh_commands["RPM"],
+            veh_commands["SPEED"],
+            veh_commands["COOLANT_TEMP"],
+            veh_commands["AMBIANT_AIR_TEMP"],
+            veh_commands["ENGINE_LOAD"],
+            veh_commands["FUEL_LEVEL"],
+            veh_commands["CONTROL_MODULE_VOLTAGE"],
+            veh_commands["MAF"],
+            veh_commands["RUN_TIME"],
+        ]
+        commands = sorted(commands, key=lambda cmd: (cmd.name, cmd.mode, cmd.pid))
+
+        options: list[SelectOptionDict] = [
+            {
+                "value": command.name,
+                "label": f"{command.name} ({command.mode} {command.pid})",
+            }
+            for command in commands
+        ]
+
+        return self.async_show_form(
+            step_id="standard_commands_select",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_COMMANDS, default=[]): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            multiple=True,
+                        )
+                    )
+                }
+            ),
+        )
+
+    async def async_step_standard_commands_config(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Configure standard commands step-by-step."""
+        if user_input is not None:
+            assert self._command is not None
+            self._configured_commands.append(
+                {
+                    CONF_COMMAND: self._command.name,
+                    CONF_ICON: user_input.get(CONF_ICON),
+                    CONF_UNIT: user_input.get(CONF_UNIT),
+                    CONF_DEVICE_CLASS: user_input.get(CONF_DEVICE_CLASS),
+                    CONF_STATE_CLASS: user_input.get(CONF_STATE_CLASS),
+                }
+            )
+
+            if len(self._selected_commands) == 0:
+                return await self.async_step_polling()
+
+        assert len(self._selected_commands) != 0
+        self._command = self._selected_commands.pop(0)
+        assert self._command is not None
+
+        default_icon = propose_icon_from_command(self._command)
+        default_units = get_list_of_units(self._command)
+        default_unit = default_units[0] if default_units else None
+
+        dev_cls_propose = propose_sensor_device_class(self._command)
+        default_device_class = dev_cls_propose.value if dev_cls_propose else None
+
+        state_cls_propose = propose_sensor_state_class(self._command)
+        default_state_class = state_cls_propose.value if state_cls_propose else None
+
+        return self.async_show_form(
+            step_id="standard_commands_config",
+            description_placeholders={
+                "command_name": " ".join(
+                    self._command.name.replace("_", " ").split()
+                ).capitalize()
+            },
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_ICON, default=default_icon
+                    ): selector.IconSelector(),
+                    vol.Optional(CONF_UNIT, default=default_unit): vol.Any(
+                        None, selector.TextSelector()
+                    ),
+                    vol.Optional(
+                        CONF_DEVICE_CLASS, default=default_device_class
+                    ): vol.Any(
+                        None,
+                        selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=[
+                                    selector.SelectOptionDict(
+                                        value=dev_cls.value,
+                                        label=dev_cls.name.replace("_", " ").title(),
+                                    )
+                                    for dev_cls in SensorDeviceClass
+                                ],
+                                mode=selector.SelectSelectorMode.DROPDOWN,
+                            )
+                        ),
+                    ),
+                    vol.Optional(
+                        CONF_STATE_CLASS, default=default_state_class
+                    ): vol.Any(
+                        None,
+                        selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=[
+                                    selector.SelectOptionDict(
+                                        value=state_cls.value,
+                                        label=state_cls.name.replace("_", " ").title(),
+                                    )
+                                    for state_cls in SensorStateClass
+                                ],
+                                mode=selector.SelectSelectorMode.DROPDOWN,
+                            )
+                        ),
+                    ),
+                }
+            ),
+        )
+
     async def async_step_polling(
         self, user_input=None
     ) -> config_entries.ConfigFlowResult:
@@ -328,7 +485,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_UUID_WRITE: self._uuid_write,
                 },
                 options={
-                    CONF_PROFILE: json.dumps(self.selected_profile_json),
+                    CONF_PROFILE: self.selected_profile_json or "{}",
                     CONF_VOLTAGE_CHECK: voltage_check_bool,
                     CONF_FAST_POLL: user_input[CONF_FAST_POLL],
                     CONF_SLOW_POLL: user_input[CONF_SLOW_POLL],
@@ -336,6 +493,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_VOLTAGE_ON: user_input[CONF_VOLTAGE_ON],
                     CONF_VOLTAGE_OFF: user_input[CONF_VOLTAGE_OFF],
                     CONF_GRACE_PERIOD: user_input[CONF_GRACE_PERIOD],
+                    CONF_COMMANDS: self._configured_commands,
                 },
             )
 
@@ -363,85 +521,298 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Create the options flow."""
-        return UniversalObdBleOptionsFlow()
+        return UniversalObdBleOptionsFlow(config_entry)
 
 
 class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
     """Handle options adjustment post-setup."""
 
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow parameters."""
+        super().__init__()
+        self._options = dict(config_entry.options)
+        self._selected_commands: list[Command] = []
+        self._configured_commands: list[dict[str, str | None]] = []
+        self._command: Command | None = None
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Manage option values."""
-        errors = {}
+        """Show main setup options menu."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["polling", "standard_commands_select", "wican_profile"],
+        )
+
+    async def async_step_polling(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Polling & Battery Protection Config."""
         if user_input is not None:
-            try:
-                # Verify JSON is loadable
-                json.loads(user_input[CONF_PROFILE])
-                voltage_check_bool = user_input[CONF_VOLTAGE_CHECK] == "AT RV"
+            voltage_check_bool = user_input[CONF_VOLTAGE_CHECK] == "AT RV"
+            self._options.update(
+                {
+                    CONF_VOLTAGE_CHECK: voltage_check_bool,
+                    CONF_FAST_POLL: user_input[CONF_FAST_POLL],
+                    CONF_SLOW_POLL: user_input[CONF_SLOW_POLL],
+                    CONF_XS_POLL: user_input[CONF_XS_POLL],
+                    CONF_VOLTAGE_ON: user_input[CONF_VOLTAGE_ON],
+                    CONF_VOLTAGE_OFF: user_input[CONF_VOLTAGE_OFF],
+                    CONF_GRACE_PERIOD: user_input[CONF_GRACE_PERIOD],
+                }
+            )
+            return self.async_create_entry(title="", data=self._options)
 
-                return self.async_create_entry(
-                    title="",
-                    data={
-                        CONF_PROFILE: user_input[CONF_PROFILE],
-                        CONF_VOLTAGE_CHECK: voltage_check_bool,
-                        CONF_UUID_READ: user_input[CONF_UUID_READ],
-                        CONF_UUID_WRITE: user_input[CONF_UUID_WRITE],
-                        CONF_FAST_POLL: user_input[CONF_FAST_POLL],
-                        CONF_SLOW_POLL: user_input[CONF_SLOW_POLL],
-                        CONF_XS_POLL: user_input[CONF_XS_POLL],
-                        CONF_VOLTAGE_ON: user_input[CONF_VOLTAGE_ON],
-                        CONF_VOLTAGE_OFF: user_input[CONF_VOLTAGE_OFF],
-                        CONF_GRACE_PERIOD: user_input[CONF_GRACE_PERIOD],
-                    },
-                )
-            except json.JSONDecodeError:
-                errors["base"] = "invalid_json"
+        voltage_check = self._options.get(CONF_VOLTAGE_CHECK, True)
 
-        profile_json = self.config_entry.options.get(CONF_PROFILE, "{}")
-        voltage_check = self.config_entry.options.get(CONF_VOLTAGE_CHECK, True)
-        uuid_read = self.config_entry.options.get(
-            CONF_UUID_READ,
-            self.config_entry.data.get(CONF_UUID_READ, DEFAULT_UUID_READ),
+        return self.async_show_form(
+            step_id="polling",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_VOLTAGE_CHECK,
+                        default="AT RV" if voltage_check else "Disabled",
+                    ): vol.In(["AT RV", "Disabled"]),
+                    vol.Required(
+                        CONF_FAST_POLL,
+                        default=self._options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL),
+                    ): int,
+                    vol.Required(
+                        CONF_SLOW_POLL,
+                        default=self._options.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL),
+                    ): int,
+                    vol.Required(
+                        CONF_XS_POLL,
+                        default=self._options.get(CONF_XS_POLL, DEFAULT_XS_POLL),
+                    ): int,
+                    vol.Required(
+                        CONF_VOLTAGE_ON,
+                        default=self._options.get(CONF_VOLTAGE_ON, DEFAULT_VOLTAGE_ON),
+                    ): float,
+                    vol.Required(
+                        CONF_VOLTAGE_OFF,
+                        default=self._options.get(
+                            CONF_VOLTAGE_OFF, DEFAULT_VOLTAGE_OFF
+                        ),
+                    ): float,
+                    vol.Required(
+                        CONF_GRACE_PERIOD,
+                        default=self._options.get(
+                            CONF_GRACE_PERIOD, DEFAULT_GRACE_PERIOD
+                        ),
+                    ): int,
+                }
+            ),
         )
-        uuid_write = self.config_entry.options.get(
-            CONF_UUID_WRITE,
-            self.config_entry.data.get(CONF_UUID_WRITE, DEFAULT_UUID_WRITE),
+
+    async def async_step_standard_commands_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle selection of standard diagnostic OBD-II parameters."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if len(user_input[CONF_COMMANDS]) == 0:
+                self._options[CONF_COMMANDS] = []
+                return self.async_create_entry(title="", data=self._options)
+
+            self._selected_commands = [
+                veh_commands[cmd] for cmd in user_input[CONF_COMMANDS]
+            ]
+            self._configured_commands = []
+            return await self.async_step_standard_commands_config()
+
+        coordinator = self.config_entry.runtime_data
+
+        try:
+            _, commands = await coordinator.async_get_all_pid_commands(
+                force_refresh=True
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "Could not dynamically query OBD-II commands (car might be off): %s",
+                err,
+            )
+            commands = [
+                veh_commands["RPM"],
+                veh_commands["SPEED"],
+                veh_commands["COOLANT_TEMP"],
+                veh_commands["AMBIANT_AIR_TEMP"],
+                veh_commands["ENGINE_LOAD"],
+                veh_commands["FUEL_LEVEL"],
+                veh_commands["CONTROL_MODULE_VOLTAGE"],
+                veh_commands["MAF"],
+                veh_commands["RUN_TIME"],
+            ]
+
+        pre_selected = [
+            cmd[CONF_COMMAND] for cmd in self._options.get(CONF_COMMANDS, [])
+        ]
+        commands = sorted(commands, key=lambda cmd: (cmd.name, cmd.mode, cmd.pid))
+
+        options: list[SelectOptionDict] = [
+            {
+                "value": command.name,
+                "label": f"{command.name} ({command.mode} {command.pid})",
+            }
+            for command in commands
+        ]
+
+        return self.async_show_form(
+            step_id="standard_commands_select",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_COMMANDS, default=pre_selected
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            multiple=True,
+                        )
+                    )
+                }
+            ),
+            errors=errors,
         )
-        fast_poll = self.config_entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
-        slow_poll = self.config_entry.options.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL)
-        xs_poll = self.config_entry.options.get(CONF_XS_POLL, DEFAULT_XS_POLL)
-        on_threshold = self.config_entry.options.get(
-            CONF_VOLTAGE_ON, DEFAULT_VOLTAGE_ON
+
+    async def async_step_standard_commands_config(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Configure standard commands step-by-step."""
+        if user_input is not None:
+            assert self._command is not None
+            self._configured_commands.append(
+                {
+                    CONF_COMMAND: self._command.name,
+                    CONF_ICON: user_input.get(CONF_ICON),
+                    CONF_UNIT: user_input.get(CONF_UNIT),
+                    CONF_DEVICE_CLASS: user_input.get(CONF_DEVICE_CLASS),
+                    CONF_STATE_CLASS: user_input.get(CONF_STATE_CLASS),
+                }
+            )
+
+            if len(self._selected_commands) == 0:
+                self._options[CONF_COMMANDS] = self._configured_commands
+                return self.async_create_entry(title="", data=self._options)
+
+        assert len(self._selected_commands) != 0
+        self._command = self._selected_commands.pop(0)
+        assert self._command is not None
+
+        previous_config = next(
+            (
+                cmd_config
+                for cmd_config in self._options.get(CONF_COMMANDS, [])
+                if cmd_config[CONF_COMMAND] == self._command.name
+            ),
+            None,
         )
-        off_threshold = self.config_entry.options.get(
-            CONF_VOLTAGE_OFF, DEFAULT_VOLTAGE_OFF
+
+        default_icon = (
+            previous_config.get(CONF_ICON)
+            if previous_config
+            else propose_icon_from_command(self._command)
         )
-        grace_period = self.config_entry.options.get(
-            CONF_GRACE_PERIOD, DEFAULT_GRACE_PERIOD
+        default_units = get_list_of_units(self._command)
+        default_unit = (
+            previous_config.get(CONF_UNIT)
+            if previous_config
+            else default_units[0]
+            if default_units
+            else None
+        )
+
+        dev_cls_propose = propose_sensor_device_class(self._command)
+        default_device_class = (
+            previous_config.get(CONF_DEVICE_CLASS)
+            if previous_config
+            else (dev_cls_propose.value if dev_cls_propose else None)
+        )
+
+        state_cls_propose = propose_sensor_state_class(self._command)
+        default_state_class = (
+            previous_config.get(CONF_STATE_CLASS)
+            if previous_config
+            else (state_cls_propose.value if state_cls_propose else None)
         )
 
         return self.async_show_form(
-            step_id="init",
+            step_id="standard_commands_config",
+            description_placeholders={
+                "command_name": " ".join(
+                    self._command.name.replace("_", " ").split()
+                ).capitalize()
+            },
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_ICON, default=default_icon
+                    ): selector.IconSelector(),
+                    vol.Optional(CONF_UNIT, default=default_unit): vol.Any(
+                        None, selector.TextSelector()
+                    ),
+                    vol.Optional(
+                        CONF_DEVICE_CLASS, default=default_device_class
+                    ): vol.Any(
+                        None,
+                        selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=[
+                                    selector.SelectOptionDict(
+                                        value=dev_cls.value,
+                                        label=dev_cls.name.replace("_", " ").title(),
+                                    )
+                                    for dev_cls in SensorDeviceClass
+                                ],
+                                mode=selector.SelectSelectorMode.DROPDOWN,
+                            )
+                        ),
+                    ),
+                    vol.Optional(
+                        CONF_STATE_CLASS, default=default_state_class
+                    ): vol.Any(
+                        None,
+                        selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=[
+                                    selector.SelectOptionDict(
+                                        value=state_cls.value,
+                                        label=state_cls.name.replace("_", " ").title(),
+                                    )
+                                    for state_cls in SensorStateClass
+                                ],
+                                mode=selector.SelectSelectorMode.DROPDOWN,
+                            )
+                        ),
+                    ),
+                }
+            ),
+        )
+
+    async def async_step_wican_profile(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Configure raw WiCAN profile options."""
+        errors = {}
+        if user_input is not None:
+            try:
+                json.loads(user_input[CONF_PROFILE])
+                self._options[CONF_PROFILE] = user_input[CONF_PROFILE]
+                return self.async_create_entry(title="", data=self._options)
+            except json.JSONDecodeError:
+                errors["base"] = "invalid_json"
+
+        profile_json = self._options.get(CONF_PROFILE, "{}")
+
+        return self.async_show_form(
+            step_id="wican_profile",
             data_schema=vol.Schema(
                 {
                     vol.Required(
                         CONF_PROFILE, default=profile_json
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(multiline=True)
-                    ),
-                    vol.Required(
-                        CONF_VOLTAGE_CHECK,
-                        default="AT RV" if voltage_check else "Disabled",
-                    ): vol.In(["AT RV", "Disabled"]),
-                    vol.Required(CONF_UUID_READ, default=uuid_read): str,
-                    vol.Required(CONF_UUID_WRITE, default=uuid_write): str,
-                    vol.Required(CONF_FAST_POLL, default=fast_poll): int,
-                    vol.Required(CONF_SLOW_POLL, default=slow_poll): int,
-                    vol.Required(CONF_XS_POLL, default=xs_poll): int,
-                    vol.Required(CONF_VOLTAGE_ON, default=on_threshold): float,
-                    vol.Required(CONF_VOLTAGE_OFF, default=off_threshold): float,
-                    vol.Required(CONF_GRACE_PERIOD, default=grace_period): int,
+                    )
                 }
             ),
             errors=errors,

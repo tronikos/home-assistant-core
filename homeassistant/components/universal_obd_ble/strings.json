@@ -41,8 +41,25 @@
         "data": {
           "car": "Vehicle Model"
         },
-        "description": "Choose a vehicle profile. You can fetch the latest community profiles from GitHub or use local fallback configurations.",
+        "description": "Choose a vehicle profile. Select 'None / Standard OBD-II Only' if you only want to track standard generic OBD2 PIDs.",
         "title": "Select Vehicle Profile"
+      },
+      "standard_commands_config": {
+        "data": {
+          "device_class": "Measurement type",
+          "icon": "Icon for entity",
+          "state_class": "Measurement behavior",
+          "unit": "Unit of measurement"
+        },
+        "description": "## **{command_name}**\nSelect how the shown command should be configured in Home Assistant.",
+        "title": "Configure Tracked OBD2 Commands"
+      },
+      "standard_commands_select": {
+        "data": {
+          "commands": "Monitored Standard OBD-II PIDs"
+        },
+        "description": "Select standard OBD-II standard PIDs this integration instance should actively poll from your car.",
+        "title": "Select Tracked OBD2 Commands"
       },
       "user": {
         "data": {
@@ -64,20 +81,50 @@
     },
     "step": {
       "init": {
+        "description": "Please select which subsystem of your OBD-II integration profile you want to adjust.",
+        "menu_options": {
+          "polling": "Configure polling parameters & sleep states",
+          "standard_commands_select": "Select and configure monitored standard OBD-II commands",
+          "wican_profile": "Configure custom WiCAN JSON profile schemas"
+        },
+        "title": "OBD2 Configurations Menu"
+      },
+      "polling": {
         "data": {
           "fast_poll": "Active Polling Interval (seconds)",
-          "profile": "WiCAN Profile JSON",
           "slow_poll": "Idle Polling Interval (seconds)",
-          "uuid_read": "Read (RX) Characteristic UUID",
-          "uuid_write": "Write (TX) Characteristic UUID",
           "voltage_check": "Voltage Checking Mode",
           "voltage_grace_seconds": "Post-Shutdown Grace Period (seconds)",
           "voltage_off_threshold": "Ignition Off Threshold (V)",
           "voltage_on_threshold": "Ignition On Threshold (V)",
           "xs_poll": "Out of Range Connection Sweep (seconds)"
         },
-        "description": "Adjust the configuration profile or update your battery-safe active states.",
-        "title": "Tuning & Profiles Menu"
+        "description": "Adjust the active battery-protection thresholds and custom connection search rates below.",
+        "title": "Polling Interval Tuning"
+      },
+      "standard_commands_config": {
+        "data": {
+          "device_class": "Measurement type",
+          "icon": "Icon for entity",
+          "state_class": "Measurement behavior",
+          "unit": "Unit of measurement"
+        },
+        "description": "## **{command_name}**\nSelect how the shown command should be configured in Home Assistant.",
+        "title": "Configure Tracked OBD2 Commands"
+      },
+      "standard_commands_select": {
+        "data": {
+          "commands": "Monitored Standard OBD-II PIDs"
+        },
+        "description": "Select which PIDs and standard diagnostic parameters this integration instance should poll from your car.",
+        "title": "Select Tracked OBD2 Commands"
+      },
+      "wican_profile": {
+        "data": {
+          "profile": "WiCAN Profile JSON"
+        },
+        "description": "Adjust or paste your customized WiCAN JSON configuration profile directly in the editor below.",
+        "title": "Tweak WiCAN Profile"
       }
     }
   }

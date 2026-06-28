@@ -7,14 +7,14 @@ import re
 import time
 from typing import Any
 
-from obdii import Command, Connection, Mode, Response
+from obdii import Command, Connection, Mode, Response, commands as veh_commands
 
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.components.bluetooth.api import async_address_present
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
     CONF_ATRV_SUPPORTED,
@@ -54,11 +54,7 @@ _OBD_ERROR_TOKENS = ("DATA", "ERROR", "STOPPED", "UNABLE", "BUS")
 
 
 def extract_dirty_array(raw_response: bytes) -> list[int]:
-    """Dump all bytes (including PCI) into a 0-indexed array exactly as the C firmware does.
-
-    Handles space-delimited packets as well as contiguous hex arrays (spaces disabled)
-    for standard 11-bit CAN (3 hex chars) and 29-bit CAN (8 hex chars) formats.
-    """
+    """Dump raw response bytes into a 0-indexed integer payload array."""
     dirty_array = []
     try:
         raw_str = raw_response.decode("utf-8", errors="ignore")
@@ -73,7 +69,6 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
 
             parts = line.split()
 
-            # Fallback for AT S0 (spaces off) returning contiguous hex strings
             if len(parts) == 1 and len(line) > 3:
                 token = parts[0]
                 if (
@@ -96,7 +91,6 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
                         )
 
             if len(parts) > 1:
-                # First word is the CAN header (e.g., '7E8'). Skip it.
                 for part in parts[1:]:
                     try:
                         dirty_array.append(int(part, 16))
@@ -124,6 +118,9 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         self._current_init: str | None = None
         self.consecutive_failures = 0
         self.last_successful_poll: float | None = None
+        self.active_commands: set[Command] = set()
+        self._supported_pids: list[Any] = []
+        self._supported_cmds: list[Any] = []
 
     @property
     def ble_connected(self) -> bool:
@@ -132,11 +129,55 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
 
     @property
     def car_connected(self) -> bool:
-        """Check if the car is actively communicating."""
-        return self.ble_connected and self.state in (
-            PollingState.CAR_ON,
-            PollingState.GRACE_PERIOD,
-        )
+        """Verify vehicle responds and has successfully communicated recently."""
+        if not self.ble_connected or self.last_successful_poll is None:
+            return False
+        fast_poll = self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
+        return (time.monotonic() - self.last_successful_poll) < (fast_poll * 2.5 + 5)
+
+    async def async_get_all_pid_commands(
+        self, force_refresh: bool = False
+    ) -> tuple[list[Any], list[Any]]:
+        """Determine and scan all diagnostic commands supported by the vehicle's ECU."""
+        if self._supported_pids and self._supported_cmds and not force_refresh:
+            return self._supported_pids, self._supported_cmds
+
+        if self.api is None or not self.api.is_connected():
+            address = self.entry.data[CONF_ADDRESS]
+            ble_device = async_ble_device_from_address(self.hass, address, True)
+            if ble_device is None:
+                raise UpdateFailed(
+                    "Connection offline to retrieve supported diagnostic commands"
+                )
+
+            connected = await self.hass.async_add_executor_job(
+                self._ensure_connected, ble_device
+            )
+            if not connected or not self.api:
+                raise UpdateFailed("Failed to establish diagnostic standard scan link")
+
+        self._supported_pids = []
+        self._supported_cmds = []
+
+        for cmd_block in (0x00, 0x20, 0x40, 0x60, 0x80, 0xA0, 0xC0):
+            try:
+                support_cmd = veh_commands[1][cmd_block]
+                response: Response = await self.hass.async_add_executor_job(
+                    self.api.query, support_cmd
+                )
+                if response and isinstance(response.value, list):
+                    self._supported_pids.extend(response.value)
+                    for pid in response.value:
+                        try:
+                            self._supported_cmds.append(veh_commands[1][pid])
+                        except KeyError:
+                            _LOGGER.debug(
+                                "PID %s has no library standard definition", pid
+                            )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Error retrieving support blocks %s: %s", cmd_block, err)
+
+        return self._supported_pids, self._supported_cmds
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Periodic query trigger."""
@@ -148,13 +189,11 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             )
             return self.data
 
-        # Thread-safe BLE device resolution on the main event loop
         ble_dev = async_ble_device_from_address(self.hass, address, True)
         if ble_dev is None:
             _LOGGER.warning("BLE device not found for address %s", address)
             return self.data
 
-        # Safely execute blocking tasks in executor and apply states on the event loop
         result = await self.hass.async_add_executor_job(self._sync_update, ble_dev)
 
         self.state = result["state"]
@@ -232,7 +271,6 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         on_threshold = self.entry.options.get(CONF_VOLTAGE_ON, DEFAULT_VOLTAGE_ON)
         grace_seconds = self.entry.options.get(CONF_GRACE_PERIOD, DEFAULT_GRACE_PERIOD)
 
-        # Determine if car is running based on protective hysteresis
         is_running = (
             voltage >= on_threshold
             if self.state == PollingState.CAR_OFF
@@ -300,7 +338,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                             res_data[param.name] = val
 
     def _sync_update(self, ble_dev) -> dict[str, Any]:
-        """Thread-safe synchronous updates executing inside executor thread pool."""
+        """Thread-safe update cycle executed inside the executor pool."""
         res_state = self.state
         res_interval = self.update_interval
         res_data = dict(self.data)
@@ -319,7 +357,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                 seconds=self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
             )
 
-            # 1. Voltage Gate Protection
+            # Voltage Gate Protection
             res_state, res_interval = self._handle_voltage_check(fast_interval)
 
             if res_state == PollingState.CAR_OFF:
@@ -329,10 +367,22 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                     "update_interval": res_interval,
                 }
 
-            # 2. Execute Queries
-            self._run_queries(res_data)
+            # Run Standard active commands
+            for cmd in self.active_commands:
+                try:
+                    resp = self.api.query(cmd)
+                    if resp and resp.value is not None:
+                        res_data[str(cmd)] = resp
+                        self.last_successful_poll = time.monotonic()
+                except Exception as e:  # noqa: BLE001
+                    _LOGGER.debug("Failed updating standard command %s: %s", cmd, e)
 
-            self.last_successful_poll = time.monotonic()
+            # Run custom profile WiCAN queries
+            profile_data = self.entry.options.get(CONF_PROFILE)
+            if profile_data and profile_data != "{}":
+                self._run_queries(res_data)
+                self.last_successful_poll = time.monotonic()
+
             self.consecutive_failures = 0
 
         except Exception as e:  # noqa: BLE001
