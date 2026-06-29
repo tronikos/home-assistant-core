@@ -11,7 +11,7 @@ from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
 
-from .const import DOMAIN, PLATFORMS
+from .const import DEBOUNCE_COOLDOWN, DOMAIN, PLATFORMS
 from .coordinator import UniversalObdCoordinator
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
@@ -28,6 +28,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = UniversalObdCoordinator(hass, entry)
     entry.runtime_data = coordinator
 
+    # Ensure entities populate with initial state at startup before forwarding setup
+    # Suppress exceptions so entities still register (as unavailable) if the car is currently off/out-of-range.
+    with contextlib.suppress(Exception):
+        await coordinator.async_config_entry_first_refresh()
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     @callback
@@ -39,13 +44,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.debug("Target device back in range: %s", service_info.address)
 
         now = time.monotonic()
-        last_poll = coordinator.last_successful_poll
 
-        # Debounce to prevent constant connection loops from BLE advertisement storm
-        if last_poll is None or (now - last_poll) > 60:
-            _LOGGER.debug(
-                "Initiating debounced arrival update for connected coordinator"
-            )
+        # Debounce to prevent constant connection loops from BLE advertisement storms
+        # utilizing the timestamp of the last actual attempt (not just successful polls)
+        if (now - coordinator.last_discovery_attempt) > DEBOUNCE_COOLDOWN:
+            coordinator.last_discovery_attempt = now
+            _LOGGER.debug("Initiating debounced arrival update for coordinator")
             hass.async_create_task(coordinator.async_request_refresh())
 
     # Active Scanning Mode Gating
@@ -72,9 +76,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded: Final = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         coordinator = entry.runtime_data
-        # Call async_close directly on the event loop to avoid a deadlock.
-        if coordinator.api and hasattr(coordinator.api, "transport"):
-            with contextlib.suppress(Exception):
-                await coordinator.api.transport.async_close()
-            coordinator.api = None  # Prevent stale reference after teardown
+        # Safely delegate disconnection to the thread pool to execute the synchronous close,
+        # unblocking any threads waiting on `self._data_ready.wait()`
+        await hass.async_add_executor_job(coordinator.disconnect)
     return unloaded

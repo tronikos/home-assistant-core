@@ -35,6 +35,8 @@ DEFAULT_VOLTAGE_ON: Final = 13.1
 DEFAULT_VOLTAGE_OFF: Final = 12.8
 DEFAULT_GRACE_PERIOD: Final = 30
 
+DEBOUNCE_COOLDOWN: Final = 60
+
 
 class PollingState:
     """States of the vehicle polling coordinator."""

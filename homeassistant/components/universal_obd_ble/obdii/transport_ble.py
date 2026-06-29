@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Coroutine
+import concurrent.futures
 import contextlib
 import logging
 from threading import Event, Lock
@@ -59,7 +60,11 @@ class TransportBLE(TransportBase):
         if self._loop is None:
             raise RuntimeError("Event loop is not running.")
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result(timeout=self.config["timeout"])
+        try:
+            return future.result(timeout=self.config["timeout"])
+        except (TimeoutError, concurrent.futures.TimeoutError) as exc:
+            future.cancel()
+            raise TimeoutError("BLE operation timed out") from exc
 
     def _notify_callback(self, _, data: bytearray) -> None:
         """Handle incoming notify notifications from BLE device."""
@@ -68,17 +73,18 @@ class TransportBLE(TransportBase):
         self._data_ready.set()
 
     async def async_connect(self) -> None:
-        """Establish BLE connection and enable notify descriptors.
-
-        Tries the configured UUIDs first, then falls back to dynamic GATT
-        service discovery so adapters with non-standard characteristic UUIDs
-        still work without manual configuration.
-        """
+        """Establish BLE connection and enable notify descriptors."""
         _LOGGER.debug(
             "Attempting to connect to BLE device %s (%s)",
             self._ble_device.name,
             self._ble_device.address,
         )
+
+        # Explicitly clear old buffer state to prevent bleeding cross-sessions
+        with self._lock:
+            self._buffer.clear()
+        self._data_ready.clear()
+
         self._ble_conn = await establish_connection(
             BleakClientWithServiceCache,
             self._ble_device,
@@ -198,7 +204,7 @@ class TransportBLE(TransportBase):
         self._data_ready.clear()
         self._run_coro(self._write(query))
 
-    def read_bytes(self, expected_seq: bytes = b">", size: int = MISSING) -> bytes:
+    def read_bytes(self, expected_seq: bytes = b">", size: Any = MISSING) -> bytes:
         """Read bytes until the terminal sequence or size limit is satisfied.
 
         Consuming (deleting) matched bytes from the internal buffer prevents
@@ -227,7 +233,9 @@ class TransportBLE(TransportBase):
             idx = snapshot.find(expected_seq)
             if idx != -1:
                 consumed_len = idx + lenterm
-            elif size is not MISSING and len(snapshot) >= size:
+            elif (
+                size is not MISSING and isinstance(size, int) and len(snapshot) >= size
+            ):
                 consumed_len = size
 
             if consumed_len is not None:

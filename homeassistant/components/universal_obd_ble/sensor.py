@@ -114,7 +114,8 @@ def propose_sensor_device_class(command: Command) -> SensorDeviceClass | None:
         return SensorDeviceClass.DURATION
     if "temp" in tokens or "temperature" in tokens:
         return SensorDeviceClass.TEMPERATURE
-    if "speed" in tokens or "velocity" in tokens or "rpm" in tokens:
+    # "rpm" removed to avoid triggering SensorDeviceClass.SPEED which demands linear km/h units
+    if "speed" in tokens or "velocity" in tokens:
         return SensorDeviceClass.SPEED
     return None
 
@@ -149,23 +150,20 @@ async def async_setup_entry(
     active_wican_names = {slugify(p.name) for p in active_wican_parameters}
     active_standard_names = {slugify(cmd[0].name) for cmd in active_standard_commands}
 
-    prefix_wican = f"{entry.unique_id}-"
-    prefix_standard = f"{entry.unique_id}-sensor-"
+    # Distinct prefix namespaces to prevent overlapping deletions of custom properties
+    prefix_wican = f"{entry.unique_id}-wican-"
+    prefix_std = f"{entry.unique_id}-std-"
 
     for reg_entry in existing_entries:
         if reg_entry.domain == "sensor":
-            if reg_entry.unique_id.startswith(prefix_standard):
-                param_name = reg_entry.unique_id[len(prefix_standard) :]
+            if reg_entry.unique_id.startswith(prefix_std):
+                param_name = reg_entry.unique_id[len(prefix_std) :]
                 if param_name not in active_standard_names:
                     _LOGGER.info(
                         "Removing orphaned standard sensor: %s", reg_entry.entity_id
                     )
                     ent_reg.async_remove(reg_entry.entity_id)
-            elif reg_entry.unique_id.startswith(
-                prefix_wican
-            ) and not reg_entry.unique_id.startswith(
-                f"{entry.unique_id}-binary_sensor-"
-            ):
+            elif reg_entry.unique_id.startswith(prefix_wican):
                 param_name = reg_entry.unique_id[len(prefix_wican) :]
                 if param_name not in active_wican_names:
                     _LOGGER.info(
@@ -200,7 +198,9 @@ class UniversalObdSensor(UniversalObdEntity, SensorEntity):
         super().__init__(coordinator, config_entry)
         self.parameter = parameter
         self._attr_name = parameter.name
-        self._attr_unique_id = f"{config_entry.unique_id}-{slugify(parameter.name)}"
+        self._attr_unique_id = (
+            f"{config_entry.unique_id}-wican-{slugify(parameter.name)}"
+        )
         self._attr_native_unit_of_measurement = (
             parameter.unit if parameter.unit != "none" else None
         )
@@ -209,6 +209,12 @@ class UniversalObdSensor(UniversalObdEntity, SensorEntity):
             parameter.unit and "RPM" in parameter.unit.upper()
         ):
             self._attr_device_class = None
+        elif (
+            parameter.device_class == "battery"
+            and self._attr_native_unit_of_measurement in ("V", "v", "Volts", "volts")
+        ):
+            # Corrects battery assignments with Voltage units that would otherwise fail HA validations
+            self._attr_device_class = SensorDeviceClass.VOLTAGE
         else:
             self._attr_device_class = DEVICE_CLASS_MAP.get(parameter.device_class or "")
 
@@ -240,24 +246,37 @@ class UniversalObdStandardSensor(UniversalObdEntity, SensorEntity):
         self._command = command
         self._config = config
         self._attr_name = " ".join(command.name.replace("_", " ").split()).capitalize()
-        self._attr_unique_id = (
-            f"{config_entry.unique_id}-sensor-{slugify(command.name)}"
-        )
+        self._attr_unique_id = f"{config_entry.unique_id}-std-{slugify(command.name)}"
 
         self._attr_icon = config.get(CONF_ICON) or propose_icon_from_command(command)
+
+        # Safely extract single unit representation
+        default_units = get_list_of_units(self._command)
         self._attr_native_unit_of_measurement = config.get(CONF_UNIT) or (
-            str(command.units) if command.units is not None else None
+            default_units[0] if default_units else None
         )
 
         dev_cls = config.get(CONF_DEVICE_CLASS)
         if dev_cls:
-            self._attr_device_class = SensorDeviceClass(dev_cls)
+            try:
+                self._attr_device_class = SensorDeviceClass(dev_cls)
+            except ValueError:
+                _LOGGER.warning(
+                    "Invalid device class %s on load, falling back", dev_cls
+                )
+                self._attr_device_class = propose_sensor_device_class(command)
         else:
             self._attr_device_class = propose_sensor_device_class(command)
 
         state_cls = config.get(CONF_STATE_CLASS)
         if state_cls:
-            self._attr_state_class = SensorStateClass(state_cls)
+            try:
+                self._attr_state_class = SensorStateClass(state_cls)
+            except ValueError:
+                _LOGGER.warning(
+                    "Invalid state class %s on load, falling back", state_cls
+                )
+                self._attr_state_class = propose_sensor_state_class(command)
         else:
             self._attr_state_class = propose_sensor_state_class(command)
 

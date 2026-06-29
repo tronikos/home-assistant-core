@@ -1,5 +1,6 @@
 """Config flow for Universal OBD BLE."""
 
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -92,34 +93,46 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _test_connection_sync(
         self, ble_device, uuid_write=None, uuid_read=None
-    ) -> bool | None:
+    ) -> tuple[bool | None, str, str]:
         """Thread-safe connection test executed in the executor pool."""
         resp: Response | None = None
+        conn = None
+        final_write = uuid_write or DEFAULT_UUID_WRITE
+        final_read = uuid_read or DEFAULT_UUID_READ
+
         try:
             transport = TransportBLE(
                 ble_device=ble_device,
                 loop=self.hass.loop,
-                uuid_write=uuid_write or DEFAULT_UUID_WRITE,
-                uuid_read=uuid_read or DEFAULT_UUID_READ,
+                uuid_write=final_write,
+                uuid_read=final_read,
                 timeout=5.0,
             )
             conn = Connection(transport)
 
-            self._uuid_write = transport.config.get("uuid_write", self._uuid_write)
-            self._uuid_read = transport.config.get("uuid_read", self._uuid_read)
+            # Capture discovered UUIDs without mutating flow state from the executor
+            final_write = transport.config.get("uuid_write", final_write)
+            final_read = transport.config.get("uuid_read", final_read)
 
             resp = conn.query(Command(Mode.AT, "RV"))
-            conn.close()
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug("Connection test failed: %s", e)
-            return None
-        else:
-            return resp is not None and b"?" not in resp.raw
+            return None, final_write, final_read
+        finally:
+            # Ensure teardown happens safely even if queries fail
+            if conn:
+                with contextlib.suppress(Exception):
+                    conn.close()
+
+        success = resp is not None and b"?" not in resp.raw
+        return success, final_write, final_read
 
     async def _async_get_characteristics(
         self, ble_device
     ) -> list[BleakGATTCharacteristic]:
         """Get characteristics quickly via pure BLE service cache."""
+        client = None
+        characteristics: list[BleakGATTCharacteristic] = []
         try:
             client = await establish_connection(
                 BleakClientWithServiceCache,
@@ -127,15 +140,18 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ble_device.name or "Unknown Device",
                 max_attempts=2,
             )
-            characteristics = []
             for service in client.services:
                 characteristics.extend(service.characteristics)
-            await client.disconnect()
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Failed to fetch pure GATT characteristics: %s", err)
             return []
         else:
             return characteristics
+        finally:
+            # Use try/finally to prevent resource leaks on exceptions
+            if client is not None:
+                with contextlib.suppress(Exception):
+                    await client.disconnect()
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -150,13 +166,19 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         res = await self.hass.async_add_executor_job(
             self._test_connection_sync, ble_device
         )
-        if res is None:
+        success, final_write, final_read = res
+
+        # Apply captured UUIDs to flow state on the main thread
+        self._uuid_write = final_write
+        self._uuid_read = final_read
+
+        if success is None:
             self._discovered_characteristics = await self._async_get_characteristics(
                 ble_device
             )
             return await self.async_step_connection()
 
-        self.atrv_supported = res
+        self.atrv_supported = success
         return await self.async_step_profile()
 
     async def async_step_user(self, user_input=None) -> config_entries.ConfigFlowResult:
@@ -173,13 +195,18 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 res = await self.hass.async_add_executor_job(
                     self._test_connection_sync, ble_device
                 )
-                if res is None:
+                success, final_write, final_read = res
+
+                self._uuid_write = final_write
+                self._uuid_read = final_read
+
+                if success is None:
                     self._discovered_characteristics = (
                         await self._async_get_characteristics(ble_device)
                     )
                     return await self.async_step_connection()
 
-                self.atrv_supported = res
+                self.atrv_supported = success
                 return await self.async_step_profile()
 
         devices = {
@@ -213,17 +240,21 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._uuid_write,
                     self._uuid_read,
                 )
-                self.atrv_supported = bool(res)
+                success, final_write, final_read = res
+                self.atrv_supported = bool(success)
+                self._uuid_write = final_write
+                self._uuid_read = final_read
 
             return await self.async_step_profile()
 
         if not self._discovered_characteristics:
             return self.async_abort(reason="no_characteristics_found")
 
+        # Fallback for missing characteristic descriptions
         options: list[SelectOptionDict] = [
             {
                 "value": char.uuid,
-                "label": f"{char.description} ({char.uuid.split('-')[0]})",
+                "label": f"{char.description or 'Unknown Characteristic'} ({char.uuid.split('-')[0]})",
             }
             for char in self._discovered_characteristics
         ]
@@ -257,7 +288,8 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.ConfigFlowResult:
         """Profile Selection."""
         if not self.profiles:
-            fallback = get_fallback_profiles()
+            # Offload blocking file system reads to the executor pool
+            fallback = await self.hass.async_add_executor_job(get_fallback_profiles)
             self.profiles = {car["car_model"]: car for car in fallback}
             try:
                 session = async_get_clientsession(self.hass)
@@ -266,7 +298,8 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     timeout=ClientTimeout(total=5),
                 ) as resp:
                     if resp.status == 200:
-                        data = await resp.json()
+                        # Allow parsing text/plain MIME types safely
+                        data = await resp.json(content_type=None)
                         if (
                             isinstance(data, dict)
                             and "cars" in data
@@ -352,7 +385,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             veh_commands["RPM"],
             veh_commands["SPEED"],
             veh_commands["COOLANT_TEMP"],
-            veh_commands["AMBIANT_AIR_TEMP"],
+            veh_commands["AMBIENT_AIR_TEMP"],
             veh_commands["ENGINE_LOAD"],
             veh_commands["FUEL_LEVEL"],
             veh_commands["CONTROL_MODULE_VOLTAGE"],
@@ -407,7 +440,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._command = self._selected_commands.pop(0)
         assert self._command is not None
 
-        default_icon = propose_icon_from_command(self._command)
+        default_icon = propose_icon_from_command(self._command) or "mdi:car"
         default_units = get_list_of_units(self._command)
         default_unit = default_units[0] if default_units else None
 
@@ -416,6 +449,23 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         state_cls_propose = propose_sensor_state_class(self._command)
         default_state_class = state_cls_propose.value if state_cls_propose else None
+
+        # Prepend 'None' options to allow users to unset device and state classes
+        dev_class_options = [selector.SelectOptionDict(value="", label="None")] + [
+            selector.SelectOptionDict(
+                value=dev_cls.value,
+                label=dev_cls.name.replace("_", " ").title(),
+            )
+            for dev_cls in SensorDeviceClass
+        ]
+
+        state_class_options = [selector.SelectOptionDict(value="", label="None")] + [
+            selector.SelectOptionDict(
+                value=state_cls.value,
+                label=state_cls.name.replace("_", " ").title(),
+            )
+            for state_cls in SensorStateClass
+        ]
 
         return self.async_show_form(
             step_id="standard_commands_config",
@@ -438,13 +488,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         None,
                         selector.SelectSelector(
                             selector.SelectSelectorConfig(
-                                options=[
-                                    selector.SelectOptionDict(
-                                        value=dev_cls.value,
-                                        label=dev_cls.name.replace("_", " ").title(),
-                                    )
-                                    for dev_cls in SensorDeviceClass
-                                ],
+                                options=dev_class_options,
                                 mode=selector.SelectSelectorMode.DROPDOWN,
                             )
                         ),
@@ -455,13 +499,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         None,
                         selector.SelectSelector(
                             selector.SelectSelectorConfig(
-                                options=[
-                                    selector.SelectOptionDict(
-                                        value=state_cls.value,
-                                        label=state_cls.name.replace("_", " ").title(),
-                                    )
-                                    for state_cls in SensorStateClass
-                                ],
+                                options=state_class_options,
                                 mode=selector.SelectSelectorMode.DROPDOWN,
                             )
                         ),
@@ -539,6 +577,11 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Show main setup options menu."""
+        # Clear transient options state to prevent bleeding between menu selections
+        self._selected_commands = []
+        self._configured_commands = []
+        self._command = None
+
         return self.async_show_menu(
             step_id="init",
             menu_options=["polling", "standard_commands_select", "wican_profile"],
@@ -636,7 +679,7 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                 veh_commands["RPM"],
                 veh_commands["SPEED"],
                 veh_commands["COOLANT_TEMP"],
-                veh_commands["AMBIANT_AIR_TEMP"],
+                veh_commands["AMBIENT_AIR_TEMP"],
                 veh_commands["ENGINE_LOAD"],
                 veh_commands["FUEL_LEVEL"],
                 veh_commands["CONTROL_MODULE_VOLTAGE"],
@@ -708,18 +751,18 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
             None,
         )
 
+        # Force strict string fallback so default_icon is never None, averting IconSelector UI crashes
         default_icon = (
             previous_config.get(CONF_ICON)
-            if previous_config
+            if previous_config and previous_config.get(CONF_ICON) is not None
             else propose_icon_from_command(self._command)
-        )
+        ) or "mdi:car"
+
         default_units = get_list_of_units(self._command)
         default_unit = (
             previous_config.get(CONF_UNIT)
             if previous_config
-            else default_units[0]
-            if default_units
-            else None
+            else (default_units[0] if default_units else None)
         )
 
         dev_cls_propose = propose_sensor_device_class(self._command)
@@ -735,6 +778,22 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
             if previous_config
             else (state_cls_propose.value if state_cls_propose else None)
         )
+
+        dev_class_options = [selector.SelectOptionDict(value="", label="None")] + [
+            selector.SelectOptionDict(
+                value=dev_cls.value,
+                label=dev_cls.name.replace("_", " ").title(),
+            )
+            for dev_cls in SensorDeviceClass
+        ]
+
+        state_class_options = [selector.SelectOptionDict(value="", label="None")] + [
+            selector.SelectOptionDict(
+                value=state_cls.value,
+                label=state_cls.name.replace("_", " ").title(),
+            )
+            for state_cls in SensorStateClass
+        ]
 
         return self.async_show_form(
             step_id="standard_commands_config",
@@ -757,13 +816,7 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                         None,
                         selector.SelectSelector(
                             selector.SelectSelectorConfig(
-                                options=[
-                                    selector.SelectOptionDict(
-                                        value=dev_cls.value,
-                                        label=dev_cls.name.replace("_", " ").title(),
-                                    )
-                                    for dev_cls in SensorDeviceClass
-                                ],
+                                options=dev_class_options,
                                 mode=selector.SelectSelectorMode.DROPDOWN,
                             )
                         ),
@@ -774,13 +827,7 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                         None,
                         selector.SelectSelector(
                             selector.SelectSelectorConfig(
-                                options=[
-                                    selector.SelectOptionDict(
-                                        value=state_cls.value,
-                                        label=state_cls.name.replace("_", " ").title(),
-                                    )
-                                    for state_cls in SensorStateClass
-                                ],
+                                options=state_class_options,
                                 mode=selector.SelectSelectorMode.DROPDOWN,
                             )
                         ),

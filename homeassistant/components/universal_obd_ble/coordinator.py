@@ -4,13 +4,16 @@ import contextlib
 from datetime import timedelta
 import logging
 import re
+import threading
 import time
 from typing import Any
 
 from obdii import Command, Connection, Mode, Response, commands as veh_commands
 
-from homeassistant.components.bluetooth import async_ble_device_from_address
-from homeassistant.components.bluetooth.api import async_address_present
+from homeassistant.components.bluetooth import (
+    async_address_present,
+    async_ble_device_from_address,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
@@ -76,10 +79,9 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
             # Fallback for AT S0 (spaces off) returning contiguous hex strings
             if len(parts) == 1 and len(line) > 3:
                 token = parts[0]
-                if (
-                    len(token) > 8
-                    and token.upper().startswith("18")
-                    and all(c in "0123456789ABCDEFabcdef" for c in token)
+                # Safely parse 29-bit CAN vs 11-bit without blindly trusting "18" prefixes
+                if len(token) > 8 and all(
+                    c in "0123456789ABCDEFabcdef" for c in token[:8]
                 ):
                     header_len = 8
                 else:
@@ -124,14 +126,28 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         self._current_init: str | None = None
         self.consecutive_failures = 0
         self.last_successful_poll: float | None = None
+        self.last_discovery_attempt: float = 0.0
+        self._offline_since: float | None = None
         self.active_commands: set[Command] = set()
         self._supported_pids: list[Any] = []
         self._supported_cmds: list[Any] = []
 
+        # Thread Synchronization lock to prevent race conditions during updates & options flow
+        self._lock = threading.Lock()
+
+    def disconnect(self) -> None:
+        """Safely close the connection from an executor pool thread."""
+        with self._lock:
+            if self.api:
+                with contextlib.suppress(Exception):
+                    self.api.close()
+                self.api = None
+
     @property
     def ble_connected(self) -> bool:
         """Check if BLE is connected."""
-        return self.api.is_connected() if self.api else False
+        with self._lock:
+            return self.api.is_connected() if self.api else False
 
     @property
     def car_connected(self) -> bool:
@@ -148,7 +164,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         if self._supported_pids and self._supported_cmds and not force_refresh:
             return self._supported_pids, self._supported_cmds
 
-        if self.api is None or not self.api.is_connected():
+        if not self.ble_connected:
             address = self.entry.data[CONF_ADDRESS]
             ble_device = async_ble_device_from_address(self.hass, address, True)
             if ble_device is None:
@@ -159,46 +175,67 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             connected = await self.hass.async_add_executor_job(
                 self._ensure_connected, ble_device
             )
-            if not connected or not self.api:
+            if not connected:
                 raise UpdateFailed("Failed to establish diagnostic standard scan link")
 
-        self._supported_pids = []
-        self._supported_cmds = []
+        pids, cmds = await self.hass.async_add_executor_job(
+            self._sync_get_all_pid_commands
+        )
+        self._supported_pids = pids
+        self._supported_cmds = cmds
+        return pids, cmds
 
-        for cmd_block in (0x00, 0x20, 0x40, 0x60, 0x80, 0xA0, 0xC0):
-            try:
-                support_cmd = veh_commands[1][cmd_block]
-                response: Response = await self.hass.async_add_executor_job(
-                    self.api.query, support_cmd
-                )
-                if response and isinstance(response.value, list):
-                    self._supported_pids.extend(response.value)
-                    for pid in response.value:
-                        try:
-                            self._supported_cmds.append(veh_commands[1][pid])
-                        except KeyError:
-                            _LOGGER.debug(
-                                "PID %s has no library standard definition", pid
-                            )
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Error retrieving support blocks %s: %s", cmd_block, err)
+    def _sync_get_all_pid_commands(self) -> tuple[list[Any], list[Any]]:
+        """Synchronously request PID support via the executor holding the API lock."""
+        with self._lock:
+            if not self.api or not self.api.is_connected():
+                raise RuntimeError("Vehicle adapter is not actively connected")
 
-        return self._supported_pids, self._supported_cmds
+            supported_pids = []
+            supported_cmds = []
+
+            for cmd_block in (0x00, 0x20, 0x40, 0x60, 0x80, 0xA0, 0xC0):
+                try:
+                    support_cmd = veh_commands[1][cmd_block]
+                    response: Response = self.api.query(support_cmd)
+                    if response and isinstance(response.value, list):
+                        supported_pids.extend(response.value)
+                        for pid in response.value:
+                            try:
+                                supported_cmds.append(veh_commands[1][pid])
+                            except KeyError:
+                                _LOGGER.debug(
+                                    "PID %s has no library standard definition", pid
+                                )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Error retrieving support blocks %s: %s", cmd_block, err
+                    )
+
+            return supported_pids, supported_cmds
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Periodic query trigger."""
         address = self.entry.data[CONF_ADDRESS]
         if not async_address_present(self.hass, address, connectable=True):
-            self.state = PollingState.OUT_OF_RANGE
-            self.update_interval = timedelta(
-                seconds=self.entry.options.get(CONF_XS_POLL, DEFAULT_XS_POLL)
-            )
-            return self.data
+            if self._offline_since is None:
+                self._offline_since = time.monotonic()
+
+            # Grace period logic before expanding poll interval
+            if time.monotonic() - self._offline_since > 60:
+                self.state = PollingState.OUT_OF_RANGE
+                self.update_interval = timedelta(
+                    seconds=self.entry.options.get(CONF_XS_POLL, DEFAULT_XS_POLL)
+                )
+
+            # Explicitly raise UpdateFailed so entities report unavailable
+            raise UpdateFailed("BLE device out of range")
+
+        self._offline_since = None
 
         ble_dev = async_ble_device_from_address(self.hass, address, True)
         if ble_dev is None:
-            _LOGGER.warning("BLE device not found for address %s", address)
-            return self.data
+            raise UpdateFailed(f"BLE device not found for address {address}")
 
         # Thread-safe copy of standard commands made on the event loop before thread dispatching
         active_cmds = list(self.active_commands)
@@ -207,15 +244,20 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             self._sync_update, ble_dev, active_cmds
         )
 
+        if result.get("failed"):
+            raise UpdateFailed(result.get("error", "Polling cycle failed"))
+
         self.state = result["state"]
         self.update_interval = result["update_interval"]
         self.data = result["data"]
         return self.data
 
     def _ensure_connected(self, ble_dev) -> bool:
-        """Ensure connection to the BLE OBD-II adapter is active."""
+        """Ensure connection to the BLE OBD-II adapter is active. Lock must be held by caller."""
         if self.api and self.api.is_connected():
             return True
+
+        self.last_discovery_attempt = time.monotonic()
 
         if self.api:
             with contextlib.suppress(Exception):
@@ -297,7 +339,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                 seconds=self.entry.options.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL)
             )
 
-        if not self.grace_start:
+        if self.grace_start is None:
             self.grace_start = time.monotonic()
 
         if time.monotonic() - self.grace_start > grace_seconds:
@@ -307,11 +349,12 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
 
         return PollingState.GRACE_PERIOD, fast_interval
 
-    def _run_queries(self, res_data: dict[str, Any]) -> None:
-        """Execute the configured profile PID queries."""
+    def _run_queries(self, res_data: dict[str, Any]) -> bool:
+        """Execute the configured profile PID queries. Return True if any succeed."""
         assert self.api is not None
 
         profile = parse_profile(self.entry.options.get(CONF_PROFILE, {}))
+        any_success = False
 
         if not self._current_init and profile.init:
             for c in profile.init.split(";"):
@@ -347,62 +390,77 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                         val = evaluate_wican_expression(param.expression, dirty_array)
                         if val is not None:
                             res_data[param.name] = val
+                            any_success = True
+
+        return any_success
 
     def _sync_update(self, ble_dev, active_cmds: list[Command]) -> dict[str, Any]:
         """Thread-safe update cycle executed inside the executor pool."""
-        res_state = self.state
-        res_interval = self.update_interval
-        res_data = dict(self.data)
+        with self._lock:
+            res_state = self.state
+            res_interval = self.update_interval
+            res_data = dict(self.data)
 
-        if not self._ensure_connected(ble_dev):
+            if not self._ensure_connected(ble_dev):
+                self.consecutive_failures += 1
+                return {"failed": True, "error": "Connection to OBD adapter failed"}
+
+            assert self.api is not None
+
+            try:
+                fast_interval = timedelta(
+                    seconds=self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
+                )
+
+                # Voltage Gate Protection
+                res_state, res_interval = self._handle_voltage_check(fast_interval)
+
+                if res_state == PollingState.CAR_OFF:
+                    self.consecutive_failures = 0
+                    return {
+                        "data": res_data,
+                        "state": res_state,
+                        "update_interval": res_interval,
+                        "failed": False,
+                    }
+
+                standard_success = False
+
+                # Run Standard active commands
+                for cmd in active_cmds:
+                    try:
+                        resp = self.api.query(cmd)
+                        if resp and resp.value is not None:
+                            res_data[str(cmd)] = resp
+                            standard_success = True
+                    except Exception as e:  # noqa: BLE001
+                        _LOGGER.debug("Failed updating standard command %s: %s", cmd, e)
+
+                # Run custom profile WiCAN queries
+                profile_data = self.entry.options.get(CONF_PROFILE)
+                profile_success = False
+                if profile_data and profile_data != "{}":
+                    profile_success = self._run_queries(res_data)
+
+                if standard_success or profile_success:
+                    self.last_successful_poll = time.monotonic()
+
+                self.consecutive_failures = 0
+
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Error during polling cycle, resetting connection: %s", e
+                )
+                with contextlib.suppress(Exception):
+                    self.api.close()
+                self.api = None
+                self._current_init = None
+                self.consecutive_failures += 1
+                return {"failed": True, "error": str(e)}
+
             return {
                 "data": res_data,
                 "state": res_state,
                 "update_interval": res_interval,
+                "failed": False,
             }
-
-        assert self.api is not None
-
-        try:
-            fast_interval = timedelta(
-                seconds=self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
-            )
-
-            # Voltage Gate Protection
-            res_state, res_interval = self._handle_voltage_check(fast_interval)
-
-            if res_state == PollingState.CAR_OFF:
-                return {
-                    "data": res_data,
-                    "state": res_state,
-                    "update_interval": res_interval,
-                }
-
-            # Run Standard active commands
-            for cmd in active_cmds:
-                try:
-                    resp = self.api.query(cmd)
-                    if resp and resp.value is not None:
-                        res_data[str(cmd)] = resp
-                        self.last_successful_poll = time.monotonic()
-                except Exception as e:  # noqa: BLE001
-                    _LOGGER.debug("Failed updating standard command %s: %s", cmd, e)
-
-            # Run custom profile WiCAN queries
-            profile_data = self.entry.options.get(CONF_PROFILE)
-            if profile_data and profile_data != "{}":
-                self._run_queries(res_data)
-                self.last_successful_poll = time.monotonic()
-
-            self.consecutive_failures = 0
-
-        except Exception as e:  # noqa: BLE001
-            _LOGGER.warning("Error during polling cycle, resetting connection: %s", e)
-            if self.api:
-                with contextlib.suppress(Exception):
-                    self.api.close()
-            self.api = None
-            self._current_init = None
-            self.consecutive_failures += 1
-
-        return {"data": res_data, "state": res_state, "update_interval": res_interval}

@@ -46,7 +46,7 @@ class SafeEvaluator(ast.NodeVisitor):
         }
         if op_type in ops:
             if op_type in (ast.Div, ast.FloorDiv, ast.Mod) and right == 0:
-                return 0.0
+                return 0.0 if op_type is ast.Div else 0
             return ops[op_type](left, right)
         raise ValueError(f"Unsupported binary operator: {op_type}")
 
