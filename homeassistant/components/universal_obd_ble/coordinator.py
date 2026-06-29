@@ -54,7 +54,11 @@ _OBD_ERROR_TOKENS = ("DATA", "ERROR", "STOPPED", "UNABLE", "BUS")
 
 
 def extract_dirty_array(raw_response: bytes) -> list[int]:
-    """Dump raw response bytes into a 0-indexed integer payload array."""
+    """Dump all bytes (including PCI) into a 0-indexed array exactly as the C firmware does.
+
+    Handles space-delimited packets as well as contiguous hex arrays (spaces disabled)
+    for standard 11-bit CAN (3 hex chars) and 29-bit CAN (8 hex chars) formats.
+    """
     dirty_array = []
     try:
         raw_str = raw_response.decode("utf-8", errors="ignore")
@@ -69,6 +73,7 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
 
             parts = line.split()
 
+            # Fallback for AT S0 (spaces off) returning contiguous hex strings
             if len(parts) == 1 and len(line) > 3:
                 token = parts[0]
                 if (
@@ -91,6 +96,7 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
                         )
 
             if len(parts) > 1:
+                # First word is the CAN header (e.g., '7E8'). Skip it.
                 for part in parts[1:]:
                     try:
                         dirty_array.append(int(part, 16))
@@ -194,7 +200,12 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("BLE device not found for address %s", address)
             return self.data
 
-        result = await self.hass.async_add_executor_job(self._sync_update, ble_dev)
+        # Thread-safe copy of standard commands made on the event loop before thread dispatching
+        active_cmds = list(self.active_commands)
+
+        result = await self.hass.async_add_executor_job(
+            self._sync_update, ble_dev, active_cmds
+        )
 
         self.state = result["state"]
         self.update_interval = result["update_interval"]
@@ -337,7 +348,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                         if val is not None:
                             res_data[param.name] = val
 
-    def _sync_update(self, ble_dev) -> dict[str, Any]:
+    def _sync_update(self, ble_dev, active_cmds: list[Command]) -> dict[str, Any]:
         """Thread-safe update cycle executed inside the executor pool."""
         res_state = self.state
         res_interval = self.update_interval
@@ -368,7 +379,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                 }
 
             # Run Standard active commands
-            for cmd in self.active_commands:
+            for cmd in active_cmds:
                 try:
                     resp = self.api.query(cmd)
                     if resp and resp.value is not None:

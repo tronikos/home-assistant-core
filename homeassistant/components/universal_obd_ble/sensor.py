@@ -279,4 +279,9 @@ class UniversalObdStandardSensor(UniversalObdEntity, SensorEntity):
         response: Response | None = self.coordinator.data.get(str(self._command))
         if response is None:
             return None
-        return response.value
+        value = response.value
+        if isinstance(value, list | tuple):
+            if all(isinstance(x, tuple) and len(x) > 0 for x in value):
+                return ", ".join(str(x[0]) for x in value)
+            return ", ".join(str(item) for item in value)
+        return value
