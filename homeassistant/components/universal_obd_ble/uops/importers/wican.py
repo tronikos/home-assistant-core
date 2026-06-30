@@ -290,10 +290,12 @@ def _translate_formula(expr: str) -> str:
     if not s:
         return ""
 
-    # 1. Multi-byte slices: [B5:B6] or [S5:S6] (case-insensitive)
+    # 1. Multi-byte slices: [B5:B6] or [S5:S6] (case-insensitive).
+    #    Strip leading zeros from byte indices (B09 -> B(9), not B(09))
+    #    because Python 3 rejects leading zeros in integer literals.
     s = re.sub(
         r"\[\s*([BS])\s*(\d+)\s*:\s*([BS])\s*(\d+)\s*\]",
-        lambda m: f"{m.group(1).upper()}({m.group(2)}, {m.group(4)})",
+        lambda m: f"{m.group(1).upper()}({int(m.group(2))}, {int(m.group(4))})",
         s,
         flags=re.IGNORECASE,
     )
@@ -303,7 +305,7 @@ def _translate_formula(expr: str) -> str:
     #    eaten by the single-byte regex first.
     s = re.sub(
         r"\b([BS])(\d+):(\d+)\b",
-        lambda m: f"BIT({m.group(2)}, {m.group(3)})",
+        lambda m: f"BIT({int(m.group(2))}, {int(m.group(3))})",
         s,
         flags=re.IGNORECASE,
     )
@@ -311,7 +313,7 @@ def _translate_formula(expr: str) -> str:
     # 3. Single byte: B3 or S3 (case-insensitive)
     s = re.sub(
         r"\b([BS])(\d+)\b",
-        lambda m: f"{m.group(1).upper()}({m.group(2)})",
+        lambda m: f"{m.group(1).upper()}({int(m.group(2))})",
         s,
         flags=re.IGNORECASE,
     )
