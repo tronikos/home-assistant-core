@@ -1,14 +1,4 @@
-"""Bluetooth Low Energy transport for OBDII.
-
-Unchanged from the pre-refactor version. Wraps bleak to expose a
-TransportBase-compatible interface to py-obdii's Connection class:
-write query bytes to a GATT characteristic, accumulate notify
-responses until the ELM327 `>` prompt arrives, then return them.
-
-Auto-discovers RX/TX GATT characteristics if the configured UUIDs
-don't match - covers adapters with non-standard Nordic UART-like
-profiles.
-"""
+"""Bluetooth Low Energy transport for OBDII."""
 
 import asyncio
 from collections.abc import Coroutine
@@ -218,7 +208,7 @@ class TransportBLE(TransportBase):
         """Read bytes until the terminal sequence or size limit is satisfied.
 
         Consuming (deleting) matched bytes from the internal buffer prevents
-        stale data from a previous AT init response bleeding into the next
+        stale data from an earlier AT init response bleeding into the next
         query when back-to-back commands arrive faster than write_bytes can
         issue its buffer-clear.
         """

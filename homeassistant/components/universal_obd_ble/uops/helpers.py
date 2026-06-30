@@ -1,10 +1,7 @@
 """ELM327 raw-response parsing helpers.
 
-The `extract_dirty_array` function is the bridge between the ELM327's
-text response and the formula evaluator.
-
-Why this exists (the "dirty array" data contract)
--------------------------------------------------
+The "dirty array" data contract
+-------------------------------
 Custom OBD-II formulas in WiCAN, Torque, and RealDash profiles are
 written by users looking at raw ELM327 terminal output. When a user
 sends `22 028C` and sees:
@@ -31,8 +28,8 @@ bytes that appear at frame boundaries in the dirty array are the
 of the ELM327's text output format that formula authors see and
 count against.
 
-What this function does
------------------------
+`extract_dirty_array`
+---------------------
 Parses the raw ELM327 text response (bytes) into a flat `list[int]`
 of all hex bytes in the response, skipping:
   - `>` prompt characters

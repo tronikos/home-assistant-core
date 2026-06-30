@@ -1,15 +1,4 @@
-"""Constants for Universal OBD BLE.
-
-Refactored to use the UOPS (Unified OBD Parameter Schema). The old
-CONF_PROFILE (raw WiCAN JSON string) and CONF_COMMANDS (list of
-per-PID config dicts) are gone - replaced by CONF_UOPS, which holds
-the whole tracked set in our internal format.
-
-Per-PID icon/unit/device_class/state_class overrides for standard PIDs
-are no longer stored here - users customize standard-PID entities via
-Home Assistant's native entity settings panel. Custom PIDs carry their
-own metadata in the UOPS structure (see uops/schema.py).
-"""
+"""Constants for Universal OBD BLE."""
 
 from typing import Final
 

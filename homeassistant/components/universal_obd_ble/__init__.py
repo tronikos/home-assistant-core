@@ -1,11 +1,4 @@
-"""Universal OBD BLE integration - entry point.
-
-Sets up the coordinator, forwards entry setup to the sensor and
-binary_sensor platforms, registers a BLE re-discovery callback so
-the coordinator requests a refresh as soon as the adapter comes
-back in range, and reloads the entry on options changes so the
-coordinator rebuilds its UOPS query plan.
-"""
+"""Set up the Universal OBD BLE integration."""
 
 import contextlib
 import logging

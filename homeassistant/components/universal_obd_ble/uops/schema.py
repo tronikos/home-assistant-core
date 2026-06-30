@@ -1,11 +1,6 @@
 """UOPS - Unified OBD Parameter Schema.
 
 Pure dataclasses. No I/O, no HA imports, no obdii dependency.
-
-The schema is the single source of truth for what the integration
-tracks, decoupled from any upstream profile format (WiCAN, Torque,
-RealDash). Upstream formats are translated into this schema once at
-import time by `uops.importers.*` and never referenced again.
 """
 
 from dataclasses import asdict, dataclass, field

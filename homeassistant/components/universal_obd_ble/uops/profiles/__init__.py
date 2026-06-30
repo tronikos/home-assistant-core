@@ -1,21 +1,12 @@
 """Built-in vehicle profiles in UOPS internal format.
 
-These are original works authored by the integration maintainers -
-NOT derivatives of any upstream GPL-licensed profile database.
+Original works - not derivatives of any upstream GPL-licensed profile
+database. CAN PID addresses are factual data (not copyrightable);
+formulas use UOPS canonical notation; the JSON schema is UopsConfig.
 
-  - The CAN PID addresses (e.g. "028C1" for VW e-Golf SOC) are factual
-    data about the vehicles' CAN buses - facts are not copyrightable
-    in any jurisdiction.
-  - The formulas are expressed in UOPS canonical notation designed
-    specifically for this integration (B(n), B(n:m), S(n), S(n:m),
-    BIT(b, n)) - not copied from WiCAN's `[B5:B6]` notation.
-  - The JSON schema is the UopsConfig schema designed for this
-    integration - not the WiCAN profile schema.
-
-For a wider selection of vehicle profiles, the integration fetches
-WiCAN's vehicle_profiles.json at runtime from meatpiHQ/wican-fw and
-translates it via `uops.importers.wican.import_wican_profile`. That
-runtime fetch + transform is OK license-wise: nothing from the source
+For a wider selection, the integration fetches WiCAN's
+vehicle_profiles.json at runtime and translates it via
+`uops.importers.wican.import_wican_profile`. Nothing from the source
 JSON is persisted or redistributed; only the resulting UopsConfig is
 stored in the user's HA config entry.
 """

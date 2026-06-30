@@ -26,11 +26,10 @@ Three-stage pipeline:
       runs in the interpreter's eval loop directly - no per-poll AST
       walk, no per-call NodeVisitor dispatch, no per-call dict lookups.
 
-Stage 3 is intentionally NOT called from the config flow - the config
-flow runs only stages 1+2 to refuse save on a bad formula. The bytecode
-is compiled once at coordinator startup via `compile_formula()` (cached
-with functools.lru_cache on the source string) and reused for the life
-of the HA process.
+The config flow runs only stages 1+2 (via `validate_formula()`) to
+refuse save on a bad formula. The coordinator compiles to bytecode
+once at startup via `compile_formula()` (cached with functools.lru_cache
+on the source string) and reuses it for the life of the process.
 
 Canonical UOPS formula notation
 -------------------------------
@@ -41,8 +40,8 @@ Canonical UOPS formula notation
     BIT(b, n)    single bit n of byte b              (0 or 1)
 
     For B and S, the call disambiguates by argument count:
-      1 argument  → single byte at that index
-      2 arguments → multi-byte slice from first..second (inclusive)
+      1 argument  -> single byte at that index
+      2 arguments -> multi-byte slice from first..second (inclusive)
 
     Operators:  +  -  *  /  //  %  **  &  |  ^  ~  <<  >>
     Constants:  integer and float literals (including scientific notation)
@@ -52,7 +51,7 @@ Examples:
 --------
     "B(0) / 2.55"            SOC percentage from a 0..255 byte
     "B(5, 6) / 100"          16-bit big-endian value scaled to hundredths
-    "S(3) * 1.8 + 32"        Celsius → Fahrenheit
+    "S(3) * 1.8 + 32"        Celsius to Fahrenheit
     "BIT(2, 0) * 1 + BIT(2, 1) * 2"   2-bit enum from byte 2
 """
 
@@ -188,7 +187,7 @@ class _AstWhitelistVisitor(ast.NodeVisitor):
         if node.func.id == "BIT":
             if len(node.args) != 2:
                 raise FormulaValidationError("BIT(b, n) requires exactly 2 arguments")
-        elif not (1 <= len(node.args) <= 2):
+        elif not (1 <= len(node.args) <= 2):  # B or S
             raise FormulaValidationError(
                 f"{node.func.id}(n) or {node.func.id}(n, m) - 1 or 2 arguments required"
             )

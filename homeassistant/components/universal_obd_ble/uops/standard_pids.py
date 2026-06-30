@@ -1,38 +1,7 @@
-"""Canonical Mode 01 PID catalog + supported-PID scanning.
+"""Canonical Mode 01 PID catalog, entity heuristics, and supported-PID scan.
 
-This module consolidates three things that today live in three
-different places in the integration:
-
-  - The list of recommended default PIDs to preselect (today hardcoded
-    in three places in config_flow.py, with names that don't all match
-    the obdii library - see "Why this matters" below).
-
-  - Entity-metadata heuristics (icon, device_class, state_class, units)
-    for standard PIDs - today in sensor.py.
-
-  - The supported-PID scan (Mode 01 PID 00/20/40/.../C0 bitmap walk) -
-    today only on the coordinator, which doesn't exist during the
-    config flow's initial setup.
-
-Moving all three here means the config flow can use the same scan
-function the options flow uses, and the recommended-defaults list is
-validated against the live obdii registry at import time so a typo
-fails loudly instead of silently at runtime.
-
-Why this matters
-----------------
-Today the recommended-defaults list is hand-typed in three places
-in config_flow.py as: RPM, SPEED, COOLANT_TEMP, MAF, RUN_TIME,
-CONTROL_MODULE_VOLTAGE, ... Checked against `modes/mode_01.py` in
-the obdii library, none of those names exist there - the actual
-attributes are ENGINE_SPEED, VEHICLE_SPEED, ENGINE_COOLANT_TEMP,
-MAF_RATE, ENGINE_RUN_TIME, VEHICLE_VOLTAGE. GroupCommands.__getitem__
-does a plain getattr with no aliasing, so commands["RPM"] raises
-KeyError. If the unconfigured-list code path were hit in the config
-flow, it would crash. Centralizing the list here with an import-time
-assertion turns this class of error from "silent KeyError deep in a
-config flow" into something the test suite (or just running the
-integration once) catches immediately.
+`RECOMMENDED_DEFAULTS` is validated against the live obdii registry at
+import time so a typo fails loudly instead of silently at runtime.
 """
 
 from typing import Final

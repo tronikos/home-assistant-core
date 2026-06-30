@@ -1,24 +1,4 @@
-"""Polling coordinator for Universal OBD BLE.
-
-Refactored to use the UOPS library. The coordinator no longer:
-  - parses WiCAN JSON on every poll cycle
-  - walks AST trees on every poll cycle
-  - tracks CAN-header state with two independent loops (standard
-    vs custom) that leak stale headers across cycles
-
-Instead it builds a single `query_plan` once at startup (rebuilt on
-options reload) by combining standard Mode 01 commands and custom
-PIDs into one ordered list of (CanContext, [QueryItem]) groups. Each
-poll tick walks the plan in order, switching ATSH/ATCRA only when
-the context changes BETWEEN groups - including transitioning back
-to the default (header=None) context, which fixes the stale-header
-bug where standard PIDs silently inherited a custom PID's header
-filter from the previous cycle.
-
-Voltage gating, battery-guard state machine, BLE-out-of-range sweep,
-and the synchronous executor dispatch are preserved from the
-pre-refactor design - those concerns are orthogonal to the UOPS work.
-"""
+"""Polling coordinator for Universal OBD BLE."""
 
 import contextlib
 from datetime import timedelta
@@ -115,14 +95,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
     # ------------------------------------------------------------------
 
     def _build_query_plan(self) -> None:
-        """Turn entry.options[CONF_UOPS] into an ordered list of (context, items).
-
-        Standard Mode 01 PIDs and custom PIDs are combined into a
-        single plan grouped by CAN context. The default context
-        (header=None) always comes first, so standard PIDs run before
-        any ATSH reconfiguration - and the plan naturally transitions
-        back to default at the start of every cycle.
-        """
+        """Build an ordered list of (context, items) from entry.options[CONF_UOPS]."""
         uops_dict = self.entry.options.get(CONF_UOPS, {})
         uops = UopsConfig.from_dict(uops_dict)
 
@@ -345,9 +318,8 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
 
         Returns True if at least one query succeeded. The plan is
         ordered with the default context first, so standard Mode 01
-        PIDs always run before any ATSH reconfiguration - and the
-        plan naturally transitions back to default at the start of
-        every cycle, which fixes the stale-header bug.
+        PIDs always run before any ATSH reconfiguration, and the
+        plan transitions back to default at the start of every cycle.
         """
         assert self.api is not None
         any_success = False
@@ -382,13 +354,13 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         queries use functional broadcast 7DF and don't depend on a
         specific receive filter.
 
-        Note: clearing ATCRA back to "no filter" requires `ATCRA` with
-        no argument on most ELM327 firmware. We don't issue that here
+        Clearing ATCRA back to "no filter" requires `ATCRA` with no
+        argument on most ELM327 firmware. We don't issue that here
         because the standard Mode 01 responses come back on the
         default broadcast receive path and an explicit ATCRA filter
-        would suppress them. If a user's vehicle needs ATCRA cleared
-        between groups, they can put `ATCRA` (no arg) in the next
-        custom PID's `init_extra` field.
+        would suppress them. If a vehicle needs ATCRA cleared between
+        groups, put `ATCRA` (no arg) in the next custom PID's
+        `init_extra` field.
         """
         assert self.api is not None
         transport = self.api.transport

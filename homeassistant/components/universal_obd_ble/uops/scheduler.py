@@ -1,31 +1,16 @@
 """CAN-context-aware query scheduling.
 
-The scheduler groups all queryable items - standard Mode 01 commands
-AND custom PIDs - by their CAN context (header, filter, extra init).
-The coordinator walks the resulting plan in order, switching
-ATSH/ATCRA only when the context changes between groups, INCLUDING
-transitioning back to the default (header=None) context.
+Groups all queryable items (standard Mode 01 commands AND custom PIDs)
+by their CAN context (header, filter, extra init). The coordinator
+walks the resulting plan in order, switching ATSH/ATCRA only when the
+context changes between groups - including transitioning back to the
+default (header=None) context.
 
-Why this matters (correctness, not just performance)
----------------------------------------------------
-The existing coordinator runs two independent loops: standard Mode 01
-commands first, custom WiCAN PIDs second. `self._current_init` is set
-to the last custom PID's init string and persists across poll cycles.
-If any custom PID in cycle N used a non-default header (e.g.
-`ATSH7E5;ATCRA7ED;`), that's still the adapter's active receive
-filter when cycle N+1 starts - and the standard-command loop runs
-immediately, with no reset, against an adapter still filtering for
-ECU 7ED instead of the default broadcast. Any vehicle profile that
-mixes standard PIDs with header-scoped custom PIDs is at risk of
-silently losing standard-PID data after the first poll.
-
-The fix is structural: `CanContext(header=None, filter=None,
-extra_init=None)` is a real, explicit value meaning "adapter default
-addressing", not the absence of a value. Every queryable item carries
-an explicit context. The coordinator transitions between contexts
-whenever consecutive groups differ, including transitioning BACK to
-the default context, so no stale header ever survives into the next
-cycle's standard-PID pass.
+`CanContext(header=None, filter=None, extra_init=None)` is a real,
+explicit value meaning "adapter default addressing", not the absence
+of a value. Treating it as a first-class context ensures no stale
+header from a custom PID survives into the next cycle's standard-PID
+pass.
 """
 
 from collections import defaultdict
@@ -114,14 +99,11 @@ class CustomQueryItem:
     """A custom PID query - uses the compiled formula evaluator.
 
     Uses `extract_dirty_array(resp.raw)` rather than `resp.unparsed`
-    because custom PID formulas (WiCAN, Torque, RealDash notation) are
-    authored against the ELM327's raw text output - the "dirty array"
-    that includes PCI bytes, mode echoes, and PID echoes at the byte
-    positions formula authors see in terminal output. py-obdii's
-    `unparsed` strips those bytes, which would make every existing
-    formula's byte indices wrong.
-
-    See `uops/helpers.py` for the full rationale.
+    because custom PID formulas are authored against the ELM327's raw
+    text output (the "dirty array" that includes PCI bytes, mode
+    echoes, and PID echoes). py-obdii's `unparsed` strips those bytes,
+    which would make every formula's byte indices wrong. See
+    `uops/helpers.py` for the full rationale.
     """
 
     pid: CustomPid

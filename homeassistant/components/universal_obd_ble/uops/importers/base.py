@@ -2,13 +2,8 @@
 
 Each upstream profile format (WiCAN JSON, future Torque CSV, future
 RealDash XML) gets one importer module that knows the upstream schema
-shape. Everything downstream - storage, scheduling, evaluation - works
-only with the UopsConfig produced by the importer, never with the
-raw upstream dict.
-
-This module deliberately defines ONLY the Protocol. Concrete importers
-live in sibling modules (wican.py, etc.) so the upstream-format
-knowledge stays isolated.
+shape. Everything downstream works only with the UopsConfig produced
+by the importer, never with the raw upstream dict.
 """
 
 from typing import Protocol, runtime_checkable

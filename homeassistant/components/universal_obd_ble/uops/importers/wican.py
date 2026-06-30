@@ -183,7 +183,7 @@ def _split_wican_command(raw: str) -> tuple[str, str]:
 def _parse_pid_init(raw: str | None) -> tuple[str | None, str | None, str | None]:
     """Parse a WiCAN `pid_init` string into (header, filter, extra_init).
 
-    Example: 'ATSH7E5;ATCRA7ED;' → ('7E5', '7ED', None)
+    Example: 'ATSH7E5;ATCRA7ED;' -> ('7E5', '7ED', None)
     Anything beyond ATSH/ATCRA goes into extra_init verbatim,
     semicolon-joined, so the scheduler can group on it as a real value.
     """
@@ -228,11 +228,11 @@ def _iter_parameters(raw: object) -> list[dict[str, Any]]:
 
     The WiCAN schema allows `parameters` to be either:
       - a list of dicts (modern):  [{"name": ..., "expression": ...}, ...]
-      - a dict of {name: expression} (legacy Torque-style shorthand)
+      - a dict of {name: expression} (Torque-style shorthand)
 
-    Normalize to list-of-dicts. The legacy form loses unit/class/min/max
-    (those fields don't exist in the shorthand), but at least the
-    parameter name and expression survive.
+    Normalize to list-of-dicts. The Torque-style form loses
+    unit/class/min/max (those fields don't exist in the shorthand),
+    but at least the parameter name and expression survive.
     """
     if isinstance(raw, list):
         return [p for p in raw if isinstance(p, dict)]

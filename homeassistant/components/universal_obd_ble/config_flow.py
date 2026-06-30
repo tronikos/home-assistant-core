@@ -1,27 +1,4 @@
-"""Config flow for Universal OBD BLE.
-
-Refactored to use the UOPS library. The setup flow is 4 steps:
-
-  1. user / bluetooth  - device discovery + connection test
-  2. connection        - UUID fallback (only when auto-detect fails)
-  3. vehicle           - pick a built-in UOPS profile, or fetch the
-                         WiCAN profile list and translate one into UOPS
-  4. standard_pids     - multiselect of standard Mode 01 PIDs,
-                         preselected from defaults + profile-derived
-                         standards; live ECU scan if reachable
-
-The setup flow does NOT ask for polling/battery config - sensible
-defaults are written to entry.options and the user adjusts them via
-the options flow. The setup flow does NOT include a JSON editor or
-a per-PID 4-field loop - both are gone.
-
-Options flow has 3 menu items:
-
-  - polling        - voltage thresholds + poll intervals
-  - standard_pids  - multiselect, live ECU re-scan
-  - custom_pids    - master-detail: list -> action -> edit form
-                     with formula whitelist validation on save
-"""
+"""Config flow for Universal OBD BLE."""
 
 import contextlib
 import logging
@@ -218,7 +195,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._wican_profiles: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
-    # Connection test (preserved from pre-refactor)
+    # Connection test
     # ------------------------------------------------------------------
 
     def _test_connection_sync(
@@ -831,7 +808,7 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                     label=f"Edit: {pid.name}{header_str}",
                 )
             )
-        options.append(SelectOptionDict(value=_ACTION_BACK, label="← Back to menu"))
+        options.append(SelectOptionDict(value=_ACTION_BACK, label="< Back to menu"))
 
         return self.async_show_form(
             step_id="custom_pids",

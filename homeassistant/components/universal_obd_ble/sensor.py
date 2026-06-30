@@ -1,30 +1,4 @@
-"""Sensor platform for Universal OBD BLE.
-
-Refactored to be a thin entity factory. Per-PID icon/unit/device_class
-heuristic logic has moved into uops/standard_pids.py; per-entity
-display customization (rename, icon override, unit override) is
-handled by Home Assistant's native entity settings panel, not stored
-in our config entry.
-
-Two entity classes:
-
-  - UniversalObdStandardSensor - for standard Mode 01 PIDs from
-    uops.standard_pids. Uses uops heuristics for icon/device_class/
-    state_class/units. The coordinator stores the resolver's typed
-    value (float, int, list, str); this sensor formats lists/tuples
-    into comma-joined strings for display.
-
-  - UniversalObdCustomSensor - for custom PIDs from uops.custom_pids.
-    Uses the per-PID metadata carried in the UOPS structure
-    (unit/device_class/state_class set by the user in the Master-Detail
-    options screen). The coordinator stores a float (or None) for
-    each custom PID.
-
-Orphan entity cleanup: when the user removes a PID from the UOPS,
-the corresponding entity is removed from the entity registry. Stable
-ids on CustomPid mean renaming a PID's display name keeps its
-history; only deleting the PID orphans the entity.
-"""
+"""Sensor platform for Universal OBD BLE."""
 
 import logging
 from typing import Any
@@ -201,9 +175,6 @@ class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
         # NOT orphan the entity. Only deleting the PID does.
         self._attr_unique_id = f"{config_entry.unique_id}-custom-{pid.id}"
 
-        # Treat the literal string "none" as no unit (matches the
-        # pre-refactor behavior where users typed "none" in the unit
-        # field to suppress the unit display).
         unit = pid.unit
         self._attr_native_unit_of_measurement = (
             None if unit in (None, "none", "None") else unit
@@ -236,11 +207,8 @@ class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
 
         # Expose min_value / max_value as extra state attributes so
         # frontend gauge cards can use them for range visualization.
-        # NOTE: _attr_native_min_value / _attr_native_max_value are
-        # NumberEntity properties, NOT SensorEntity - setting them on
-        # a SensorEntity is a silent no-op (HA ignores unknown _attr_*
-        # assignments). Extra state attributes are the correct channel
-        # for exposing advisory metadata on a sensor.
+        # (_attr_native_min_value / _attr_native_max_value are
+        # NumberEntity properties, not SensorEntity.)
         extra_attrs: dict[str, float] = {}
         if pid.min_value is not None:
             extra_attrs["min_value"] = pid.min_value

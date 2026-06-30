@@ -1,8 +1,4 @@
-"""Diagnostic binary sensors for Universal OBD BLE.
-
-Unchanged in behavior from the pre-refactor version - surfaces two
-diagnostic connectivity sensors (BLE link up, vehicle responding).
-"""
+"""Diagnostic binary sensors for Universal OBD BLE."""
 
 import logging
 
