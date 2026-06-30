@@ -6,7 +6,8 @@
     },
     "error": {
       "device_not_found": "Could not establish an over-the-air link to the device. Verify it is powered.",
-      "invalid_json": "The configuration profile contains invalid JSON. Please correct it to proceed."
+      "invalid_formula": "The formula contains disallowed characters or syntax. Only digits, math operators (+ - * / // % ** & | ^ ~ << >>), parentheses, commas, and the functions B(n), B(n, m), S(n), S(n, m), BIT(b, n) are permitted.",
+      "invalid_hex": "Mode and query must be hexadecimal digits only (e.g. mode '22', query '028C1')."
     },
     "step": {
       "connection": {
@@ -14,59 +15,29 @@
           "uuid_read": "Read (RX) Characteristic UUID",
           "uuid_write": "Write (TX) Characteristic UUID"
         },
-        "description": "Auto-discovery failed or no connection could be established. Please select the correct Bluetooth read (RX) and write (TX) characteristics discovered on your adapter.",
+        "description": "Auto-discovery failed or no connection could be established. Select the correct Bluetooth read (RX) and write (TX) characteristics discovered on your adapter.",
         "title": "Configure Connection Characteristics"
       },
-      "editor": {
+      "standard_pids": {
         "data": {
-          "profile": "WiCAN Profile JSON"
+          "standard_pids": "Standard OBD-II PIDs"
         },
-        "description": "Adjust or paste your customized WiCAN JSON configuration profile directly in the editor below.",
-        "title": "Tweak WiCAN Profile"
-      },
-      "polling": {
-        "data": {
-          "fast_poll": "Active Polling Interval (seconds)",
-          "slow_poll": "Idle Polling Interval (seconds)",
-          "voltage_check": "Voltage Checking Mode",
-          "voltage_grace_seconds": "Post-Shutdown Grace Period (seconds)",
-          "voltage_off_threshold": "Ignition Off Threshold (V)",
-          "voltage_on_threshold": "Ignition On Threshold (V)",
-          "xs_poll": "Out of Range Connection Sweep (seconds)"
-        },
-        "description": "Adjust polling frequencies and active ignition voltage levels to protect your vehicle's 12V auxiliary battery.",
-        "title": "Tuning & Battery Protection"
-      },
-      "profile": {
-        "data": {
-          "car": "Vehicle Model"
-        },
-        "description": "Choose a vehicle profile. Select 'None / Standard OBD-II Only' if you only want to track standard generic OBD2 PIDs.",
-        "title": "Select Vehicle Profile"
-      },
-      "standard_commands_config": {
-        "data": {
-          "device_class": "Measurement type",
-          "icon": "Icon for entity",
-          "state_class": "Measurement behavior",
-          "unit": "Unit of measurement"
-        },
-        "description": "## **{command_name}**\nSelect how the shown command should be configured in Home Assistant.",
-        "title": "Configure Tracked OBD2 Commands"
-      },
-      "standard_commands_select": {
-        "data": {
-          "commands": "Monitored Standard OBD-II PIDs"
-        },
-        "description": "Select standard OBD-II standard PIDs this integration instance should actively poll from your car.",
-        "title": "Select Tracked OBD2 Commands"
+        "description": "Select the standard OBD-II parameters this integration should poll from your car. Pre-selected entries are sensible defaults plus any standard PIDs from your chosen vehicle profile.{warning}",
+        "title": "Select Standard PIDs"
       },
       "user": {
         "data": {
           "address": "Bluetooth Address"
         },
-        "description": "Please select your ELM327 Bluetooth device from the discovered list below.",
+        "description": "Select your ELM327 Bluetooth device from the discovered list below.",
         "title": "Select OBD2 BLE Device"
+      },
+      "vehicle": {
+        "data": {
+          "profile": "Vehicle Profile"
+        },
+        "description": "Choose a vehicle profile. Built-in profiles are listed first; vehicle-specific profiles fetched from the WiCAN project are translated into the integration's internal format on selection. Choose 'None / Standard OBD-II Only' if you only want standard Mode 01 PIDs — you can add custom PIDs later via the Options screen.",
+        "title": "Select Vehicle Profile"
       }
     }
   },
@@ -77,54 +48,64 @@
   },
   "options": {
     "error": {
-      "invalid_json": "The configuration profile contains invalid JSON. Please correct it to proceed."
+      "invalid_formula": "The formula contains disallowed characters or syntax. Only digits, math operators (+ - * / // % ** & | ^ ~ << >>), parentheses, commas, and the functions B(n), B(n, m), S(n), S(n, m), BIT(b, n) are permitted.",
+      "invalid_hex": "Mode and query must be hexadecimal digits only (e.g. mode '22', query '028C1')."
     },
     "step": {
-      "init": {
-        "description": "Please select which subsystem of your OBD-II integration profile you want to adjust.",
-        "menu_options": {
-          "polling": "Configure polling parameters & sleep states",
-          "standard_commands_select": "Select and configure monitored standard OBD-II commands",
-          "wican_profile": "Configure custom WiCAN JSON profile schemas"
-        },
-        "title": "OBD2 Configurations Menu"
-      },
-      "polling": {
+      "custom_pid_edit": {
         "data": {
-          "fast_poll": "Active Polling Interval (seconds)",
-          "slow_poll": "Idle Polling Interval (seconds)",
-          "voltage_check": "Voltage Checking Mode",
-          "voltage_grace_seconds": "Post-Shutdown Grace Period (seconds)",
-          "voltage_off_threshold": "Ignition Off Threshold (V)",
-          "voltage_on_threshold": "Ignition On Threshold (V)",
-          "xs_poll": "Out of Range Connection Sweep (seconds)"
-        },
-        "description": "Adjust the active battery-protection thresholds and custom connection search rates below.",
-        "title": "Polling Interval Tuning"
-      },
-      "standard_commands_config": {
-        "data": {
+          "can_filter": "CAN receive filter (ATCRA target, e.g. 7ED)",
+          "can_header": "CAN header (ATSH target, e.g. 7E5)",
           "device_class": "Measurement type",
-          "icon": "Icon for entity",
+          "formula": "Formula (e.g. B(0) / 2.55, B(5, 6) / 100, S(3) * 1.8 + 32, BIT(2, 0))",
+          "init_extra": "Extra AT commands (semicolon-separated, e.g. ATST32)",
+          "max_value": "Maximum value",
+          "min_value": "Minimum value",
+          "mode": "Mode (hex, e.g. 01, 22)",
+          "pid_name": "Display name",
+          "query": "PID hex payload (e.g. 028C1)",
+          "remove": "Remove this custom PID",
           "state_class": "Measurement behavior",
           "unit": "Unit of measurement"
         },
-        "description": "## **{command_name}**\nSelect how the shown command should be configured in Home Assistant.",
-        "title": "Configure Tracked OBD2 Commands"
+        "description": "**{action}: {pid_name}**\n\nFormulas use the integration's canonical notation:\n• `B(n)` — unsigned byte at index n\n• `B(n, m)` — big-endian unsigned word, bytes n..m inclusive\n• `S(n)` / `S(n, m)` — signed equivalents\n• `BIT(b, n)` — single bit n of byte b\n\nOperators: `+ - * / // % ** & | ^ ~ << >>`\n\nThe formula is validated against a strict whitelist before saving — no attribute access, function calls (other than B/S/BIT), or names are permitted.",
+        "title": "Add / Edit Custom PID"
       },
-      "standard_commands_select": {
+      "custom_pids": {
         "data": {
-          "commands": "Monitored Standard OBD-II PIDs"
+          "action": "Action"
         },
-        "description": "Select which PIDs and standard diagnostic parameters this integration instance should poll from your car.",
-        "title": "Select Tracked OBD2 Commands"
+        "description": "Add a new custom PID, or select an existing one to edit or delete it. Custom PIDs are sorted by CAN header so PIDs sharing a header group visually.",
+        "title": "Manage Custom PIDs"
       },
-      "wican_profile": {
-        "data": {
-          "profile": "WiCAN Profile JSON"
+      "init": {
+        "description": "Select which subsystem of your OBD-II integration you want to adjust.",
+        "menu_options": {
+          "custom_pids": "Add, edit, or delete custom (proprietary) PIDs",
+          "polling": "Configure polling intervals & battery guard thresholds",
+          "standard_pids": "Select which standard OBD-II PIDs to poll"
         },
-        "description": "Adjust or paste your customized WiCAN JSON configuration profile directly in the editor below.",
-        "title": "Tweak WiCAN Profile"
+        "title": "OBD2 Configuration Menu"
+      },
+      "polling": {
+        "data": {
+          "fast_poll": "Active polling interval (seconds)",
+          "slow_poll": "Idle polling interval (seconds)",
+          "voltage_check": "Voltage checking mode",
+          "voltage_grace_seconds": "Post-shutdown grace period (seconds)",
+          "voltage_off_threshold": "Ignition off threshold (V)",
+          "voltage_on_threshold": "Ignition on threshold (V)",
+          "xs_poll": "Out-of-range connection sweep (seconds)"
+        },
+        "description": "Adjust polling frequencies and ignition voltage thresholds to protect your vehicle's 12V auxiliary battery.",
+        "title": "Polling & Battery Protection"
+      },
+      "standard_pids": {
+        "data": {
+          "standard_pids": "Standard OBD-II PIDs"
+        },
+        "description": "Select which standard OBD-II parameters this integration should poll from your car. The list is filtered to PIDs your vehicle's ECU reports as supported; if the ECU couldn't be scanned, all known PIDs are shown.{warning}",
+        "title": "Select Standard PIDs"
       }
     }
   }

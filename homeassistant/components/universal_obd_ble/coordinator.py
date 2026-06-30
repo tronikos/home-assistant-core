@@ -1,4 +1,24 @@
-"""Smart Polling Coordinator for OBD2 & WiCAN profiles."""
+"""Polling coordinator for Universal OBD BLE.
+
+Refactored to use the UOPS library. The coordinator no longer:
+  - parses WiCAN JSON on every poll cycle
+  - walks AST trees on every poll cycle
+  - tracks CAN-header state with two independent loops (standard
+    vs custom) that leak stale headers across cycles
+
+Instead it builds a single `query_plan` once at startup (rebuilt on
+options reload) by combining standard Mode 01 commands and custom
+PIDs into one ordered list of (CanContext, [QueryItem]) groups. Each
+poll tick walks the plan in order, switching ATSH/ATCRA only when
+the context changes BETWEEN groups — including transitioning back
+to the default (header=None) context, which fixes the stale-header
+bug where standard PIDs silently inherited a custom PID's header
+filter from the previous cycle.
+
+Voltage gating, battery-guard state machine, BLE-out-of-range sweep,
+and the synchronous executor dispatch are preserved from the
+pre-refactor design — those concerns are orthogonal to the UOPS work.
+"""
 
 import contextlib
 from datetime import timedelta
@@ -8,7 +28,7 @@ import threading
 import time
 from typing import Any
 
-from obdii import Command, Connection, Mode, Response, commands as veh_commands
+from obdii import Command, Connection, Mode, Response
 
 from homeassistant.components.bluetooth import (
     async_address_present,
@@ -23,8 +43,8 @@ from .const import (
     CONF_ATRV_SUPPORTED,
     CONF_FAST_POLL,
     CONF_GRACE_PERIOD,
-    CONF_PROFILE,
     CONF_SLOW_POLL,
+    CONF_UOPS,
     CONF_UUID_READ,
     CONF_UUID_WRITE,
     CONF_VOLTAGE_CHECK,
@@ -43,75 +63,32 @@ from .const import (
     PollingState,
 )
 from .obdii.transport_ble import TransportBLE
-from .wican.formula import evaluate_wican_expression
-from .wican.profile import parse_profile
+from .uops import (
+    CanContext,
+    CustomQueryItem,
+    QueryItem,
+    StandardQueryItem,
+    UopsConfig,
+    build_query_plan,
+    context_for_custom_pid,
+    get_standard_command,
+    make_evaluator,
+    scan_supported_pids,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-# Matches a plausible vehicle battery voltage: 1-2 digits, decimal point, 1-2 digits.
-# e.g. "14.2V", "12.80V".
+# Matches a plausible vehicle battery voltage: 1-2 digits, decimal
+# point, 1-2 digits. e.g. "14.2V", "12.80V". Negative lookarounds
+# prevent matching longer numbers like "123.45".
 _VOLTAGE_RE = re.compile(r"(?<!\d)(\d{1,2}\.\d{1,2})(?!\d)")
 
-# Known non-hex diagnostic and error tokens returned by ELM327 interfaces
-_OBD_ERROR_TOKENS = ("DATA", "ERROR", "STOPPED", "UNABLE", "BUS")
-
-
-def extract_dirty_array(raw_response: bytes) -> list[int]:
-    """Dump all bytes (including PCI) into a 0-indexed array exactly as the C firmware does.
-
-    Handles space-delimited packets as well as contiguous hex arrays (spaces disabled)
-    for standard 11-bit CAN (3 hex chars) and 29-bit CAN (8 hex chars) formats.
-    """
-    dirty_array = []
-    try:
-        raw_str = raw_response.decode("utf-8", errors="ignore")
-        lines = [
-            line.strip()
-            for line in raw_str.splitlines()
-            if line.strip() and ">" not in line
-        ]
-        for line in lines:
-            if any(token in line for token in _OBD_ERROR_TOKENS):
-                continue
-
-            parts = line.split()
-
-            # Fallback for AT S0 (spaces off) returning contiguous hex strings
-            if len(parts) == 1 and len(line) > 3:
-                token = parts[0]
-                # Safely parse 29-bit CAN vs 11-bit without blindly trusting "18" prefixes
-                if len(token) > 8 and all(
-                    c in "0123456789ABCDEFabcdef" for c in token[:8]
-                ):
-                    header_len = 8
-                else:
-                    header_len = 3
-                if len(token) > header_len:
-                    payload = token[header_len:]
-                    parts = [token[:header_len]] + [
-                        payload[i : i + 2]
-                        for i in range(0, len(payload) - (len(payload) % 2), 2)
-                    ]
-                    if len(payload) % 2:
-                        _LOGGER.debug(
-                            "Odd trailing nibble in spaces-off frame: %r", token
-                        )
-
-            if len(parts) > 1:
-                # First word is the CAN header (e.g., '7E8'). Skip it.
-                for part in parts[1:]:
-                    try:
-                        dirty_array.append(int(part, 16))
-                    except ValueError:
-                        _LOGGER.debug("Non-hex token in frame, skipping: %r", part)
-
-    except Exception as err:  # noqa: BLE001
-        _LOGGER.debug("Could not extract dirty array: %s", err)
-    return dirty_array
+# ELM327 wire-level prompt terminator.
+_PROMPT = b">"
 
 
 class UniversalObdCoordinator(DataUpdateCoordinator):
-    """Local data coordinator coordinating connection state and vehicle metric queries."""
+    """Local data coordinator that runs a pre-built UOPS query plan."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize coordinator state machine."""
@@ -119,21 +96,110 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             hass, _LOGGER, name=DOMAIN, update_interval=timedelta(seconds=5)
         )
         self.entry = entry
-        self.data = {}
+        self.data: dict[str, Any] = {}
         self.state = PollingState.OUT_OF_RANGE
         self.grace_start: float | None = None
         self.api: Connection | None = None
-        self._current_init: str | None = None
+        self._current_context: CanContext | None = None
         self.consecutive_failures = 0
         self.last_successful_poll: float | None = None
         self.last_discovery_attempt: float = 0.0
         self._offline_since: float | None = None
-        self.active_commands: set[Command] = set()
-        self._supported_pids: list[Any] = []
-        self._supported_cmds: list[Any] = []
 
-        # Thread Synchronization lock to prevent race conditions during updates & options flow
+        # The query plan — built once at startup from entry.options[CONF_UOPS].
+        # Rebuilt on options reload (the entry is fully reloaded by
+        # update_options_listener in __init__.py, so a fresh coordinator
+        # instance gets a fresh plan).
+        self._query_plan: list[tuple[CanContext, list[QueryItem]]] = []
+        self._build_query_plan()
+
+        # Thread synchronization lock — held for the entire _sync_update
+        # cycle to prevent the options flow's PID scan from interleaving
+        # with a poll tick.
         self._lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Query plan construction
+    # ------------------------------------------------------------------
+
+    def _build_query_plan(self) -> None:
+        """Turn entry.options[CONF_UOPS] into an ordered list of (context, items).
+
+        Standard Mode 01 PIDs and custom PIDs are combined into a
+        single plan grouped by CAN context. The default context
+        (header=None) always comes first, so standard PIDs run before
+        any ATSH reconfiguration — and the plan naturally transitions
+        back to default at the start of every cycle.
+        """
+        uops_dict = self.entry.options.get(CONF_UOPS, {})
+        uops = UopsConfig.from_dict(uops_dict)
+
+        items: list[QueryItem] = []
+
+        for name in uops.standard_pids:
+            command = get_standard_command(name)
+            if command is None:
+                _LOGGER.warning(
+                    "Standard PID %s not found in obdii registry — skipping", name
+                )
+                continue
+            items.append(StandardQueryItem(command_name=name, command=command))
+
+        for pid in uops.custom_pids:
+            try:
+                command = Command(pid.mode, pid.query)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Could not build obdii.Command for custom PID %s (mode=%s query=%s): %s",
+                    pid.name,
+                    pid.mode,
+                    pid.query,
+                    err,
+                )
+                continue
+            try:
+                evaluator = make_evaluator(pid.formula)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error(
+                    "Custom PID %s has invalid formula %r — skipping: %s",
+                    pid.name,
+                    pid.formula,
+                    err,
+                )
+                continue
+            items.append(
+                CustomQueryItem(
+                    pid=pid,
+                    command=command,
+                    evaluator=evaluator,
+                    context=context_for_custom_pid(pid),
+                )
+            )
+
+        self._query_plan = build_query_plan(items)
+        _LOGGER.debug(
+            "Built query plan: %d items in %d groups",
+            sum(len(g) for _, g in self._query_plan),
+            len(self._query_plan),
+        )
+
+    # ------------------------------------------------------------------
+    # Public properties used by binary_sensor.py
+    # ------------------------------------------------------------------
+
+    @property
+    def ble_connected(self) -> bool:
+        """True if the BLE link to the adapter is up."""
+        with self._lock:
+            return self.api.is_connected() if self.api else False
+
+    @property
+    def car_connected(self) -> bool:
+        """True if the vehicle responded recently."""
+        if not self.ble_connected or self.last_successful_poll is None:
+            return False
+        fast_poll = self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
+        return (time.monotonic() - self.last_successful_poll) < (fast_poll * 2.5 + 5)
 
     def disconnect(self) -> None:
         """Safely close the connection from an executor pool thread."""
@@ -142,77 +208,45 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                 with contextlib.suppress(Exception):
                     self.api.close()
                 self.api = None
+                self._current_context = None
 
-    @property
-    def ble_connected(self) -> bool:
-        """Check if BLE is connected."""
-        with self._lock:
-            return self.api.is_connected() if self.api else False
+    # ------------------------------------------------------------------
+    # Supported-PID scan (used by the options flow's standard-PID multiselect)
+    # ------------------------------------------------------------------
 
-    @property
-    def car_connected(self) -> bool:
-        """Verify vehicle responds and has successfully communicated recently."""
-        if not self.ble_connected or self.last_successful_poll is None:
-            return False
-        fast_poll = self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
-        return (time.monotonic() - self.last_successful_poll) < (fast_poll * 2.5 + 5)
+    async def async_scan_supported_standard_pids(self) -> list[str]:
+        """Live-scan the ECU for supported Mode 01 PIDs.
 
-    async def async_get_all_pid_commands(
-        self, force_refresh: bool = False
-    ) -> tuple[list[Any], list[Any]]:
-        """Determine and scan all diagnostic commands supported by the vehicle's ECU."""
-        if self._supported_pids and self._supported_cmds and not force_refresh:
-            return self._supported_pids, self._supported_cmds
-
+        Used by the options flow's standard-PID multiselect to filter
+        the dropdown to only PIDs the car actually supports. Opens a
+        connection if needed, runs the bitmap walk, returns canonical
+        command names.
+        """
         if not self.ble_connected:
             address = self.entry.data[CONF_ADDRESS]
             ble_device = async_ble_device_from_address(self.hass, address, True)
             if ble_device is None:
                 raise UpdateFailed(
-                    "Connection offline to retrieve supported diagnostic commands"
+                    "BLE adapter not in range — cannot scan supported PIDs"
                 )
-
             connected = await self.hass.async_add_executor_job(
                 self._ensure_connected, ble_device
             )
             if not connected:
-                raise UpdateFailed("Failed to establish diagnostic standard scan link")
+                raise UpdateFailed("Failed to connect for supported-PID scan")
 
-        pids, cmds = await self.hass.async_add_executor_job(
-            self._sync_get_all_pid_commands
-        )
-        self._supported_pids = pids
-        self._supported_cmds = cmds
-        return pids, cmds
+        return await self.hass.async_add_executor_job(self._sync_scan_supported_pids)
 
-    def _sync_get_all_pid_commands(self) -> tuple[list[Any], list[Any]]:
-        """Synchronously request PID support via the executor holding the API lock."""
+    def _sync_scan_supported_pids(self) -> list[str]:
+        """Run the bitmap walk holding the API lock."""
         with self._lock:
             if not self.api or not self.api.is_connected():
-                raise RuntimeError("Vehicle adapter is not actively connected")
+                raise UpdateFailed("Adapter not connected during supported-PID scan")
+            return scan_supported_pids(self.api)
 
-            supported_pids = []
-            supported_cmds = []
-
-            for cmd_block in (0x00, 0x20, 0x40, 0x60, 0x80, 0xA0, 0xC0):
-                try:
-                    support_cmd = veh_commands[1][cmd_block]
-                    response: Response = self.api.query(support_cmd)
-                    if response and isinstance(response.value, list):
-                        supported_pids.extend(response.value)
-                        for pid in response.value:
-                            try:
-                                supported_cmds.append(veh_commands[1][pid])
-                            except KeyError:
-                                _LOGGER.debug(
-                                    "PID %s has no library standard definition", pid
-                                )
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "Error retrieving support blocks %s: %s", cmd_block, err
-                    )
-
-            return supported_pids, supported_cmds
+    # ------------------------------------------------------------------
+    # Main polling cycle
+    # ------------------------------------------------------------------
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Periodic query trigger."""
@@ -220,15 +254,13 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         if not async_address_present(self.hass, address, connectable=True):
             if self._offline_since is None:
                 self._offline_since = time.monotonic()
-
-            # Grace period logic before expanding poll interval
+            # Grace period before expanding poll interval — keeps the
+            # entity responsive through brief BLE dropouts.
             if time.monotonic() - self._offline_since > 60:
                 self.state = PollingState.OUT_OF_RANGE
                 self.update_interval = timedelta(
                     seconds=self.entry.options.get(CONF_XS_POLL, DEFAULT_XS_POLL)
                 )
-
-            # Explicitly raise UpdateFailed so entities report unavailable
             raise UpdateFailed("BLE device out of range")
 
         self._offline_since = None
@@ -237,11 +269,12 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         if ble_dev is None:
             raise UpdateFailed(f"BLE device not found for address {address}")
 
-        # Thread-safe copy of standard commands made on the event loop before thread dispatching
-        active_cmds = list(self.active_commands)
+        # Snapshot the plan on the event loop — the options flow could
+        # otherwise mutate it mid-cycle if a reload interleaves.
+        plan = list(self._query_plan)
 
         result = await self.hass.async_add_executor_job(
-            self._sync_update, ble_dev, active_cmds
+            self._sync_update, ble_dev, plan
         )
 
         if result.get("failed"):
@@ -252,8 +285,149 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         self.data = result["data"]
         return self.data
 
+    def _sync_update(
+        self,
+        ble_dev,
+        plan: list[tuple[CanContext, list[QueryItem]]],
+    ) -> dict[str, Any]:
+        """Thread-safe update cycle executed inside the executor pool."""
+        with self._lock:
+            res_state = self.state
+            res_interval = self.update_interval
+            res_data: dict[str, Any] = dict(self.data)
+
+            if not self._ensure_connected(ble_dev):
+                self.consecutive_failures += 1
+                return {"failed": True, "error": "Connection to OBD adapter failed"}
+
+            assert self.api is not None
+
+            try:
+                fast_interval = timedelta(
+                    seconds=self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
+                )
+
+                # Voltage gate — may transition to CAR_OFF and skip the query plan.
+                res_state, res_interval = self._handle_voltage_check(fast_interval)
+
+                if res_state != PollingState.CAR_OFF:
+                    any_success = self._run_plan(plan, res_data)
+                    if any_success:
+                        self.last_successful_poll = time.monotonic()
+
+                self.consecutive_failures = 0
+
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Error during polling cycle, resetting connection: %s", e
+                )
+                with contextlib.suppress(Exception):
+                    self.api.close()
+                self.api = None
+                self._current_context = None
+                self.consecutive_failures += 1
+                return {"failed": True, "error": str(e)}
+
+            return {
+                "data": res_data,
+                "state": res_state,
+                "update_interval": res_interval,
+                "failed": False,
+            }
+
+    def _run_plan(
+        self,
+        plan: list[tuple[CanContext, list[QueryItem]]],
+        res_data: dict[str, Any],
+    ) -> bool:
+        """Walk the query plan, switching CAN context only between groups.
+
+        Returns True if at least one query succeeded. The plan is
+        ordered with the default context first, so standard Mode 01
+        PIDs always run before any ATSH reconfiguration — and the
+        plan naturally transitions back to default at the start of
+        every cycle, which fixes the stale-header bug.
+        """
+        assert self.api is not None
+        any_success = False
+
+        for context, items in plan:
+            # Transition context only when it actually changes. This is
+            # the literal "group and sort by CAN headers to minimize
+            # slow ELM327 initialization delays" requirement.
+            if context != self._current_context:
+                self._apply_can_context(context)
+                self._current_context = context
+
+            for item in items:
+                try:
+                    value = item.execute(self.api)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug("Query %s failed: %s", item.key, err)
+                    continue
+                if value is not None:
+                    res_data[item.key] = value
+                    any_success = True
+
+        return any_success
+
+    def _apply_can_context(self, context: CanContext) -> None:
+        """Send the AT commands needed to transition to `context`.
+
+        Sends ATSH (set header), ATCRA (set receive address), and any
+        extra AT commands the context carries. For the default context
+        (all None), this is a no-op — the adapter retains whatever
+        addressing it had, which is fine because standard Mode 01
+        queries use functional broadcast 7DF and don't depend on a
+        specific receive filter.
+
+        Note: clearing ATCRA back to "no filter" requires `ATCRA` with
+        no argument on most ELM327 firmware. We don't issue that here
+        because the standard Mode 01 responses come back on the
+        default broadcast receive path and an explicit ATCRA filter
+        would suppress them. If a user's vehicle needs ATCRA cleared
+        between groups, they can put `ATCRA` (no arg) in the next
+        custom PID's `init_extra` field.
+        """
+        assert self.api is not None
+        transport = self.api.transport
+
+        if context.header is not None:
+            self._send_at(transport, f"ATSH{context.header}")
+
+        if context.filter is not None:
+            self._send_at(transport, f"ATCRA{context.filter}")
+
+        if context.extra_init:
+            for cmd in context.extra_init.split(";"):
+                cmd = cmd.strip()
+                if cmd:
+                    self._send_at(transport, cmd)
+
+    def _send_at(self, transport, command: str) -> None:
+        """Write a single AT command + CR, then drain the response.
+
+        The ELM327 acknowledges AT commands with `OK` (or sometimes
+        just `>`). We don't parse the ack — we just drain up to the
+        prompt so the next query starts with a clean buffer.
+        """
+        try:
+            transport.write_bytes(command.encode() + b"\r")
+            transport.read_bytes()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("AT command %r failed: %s", command, err)
+
+    # ------------------------------------------------------------------
+    # Connection management
+    # ------------------------------------------------------------------
+
     def _ensure_connected(self, ble_dev) -> bool:
-        """Ensure connection to the BLE OBD-II adapter is active. Lock must be held by caller."""
+        """Ensure the BLE OBD-II adapter connection is active.
+
+        Lock must be held by the caller. Creates a fresh TransportBLE
+        + Connection if needed; resets the CAN-context cache so the
+        next poll cycle re-applies the default context explicitly.
+        """
         if self.api and self.api.is_connected():
             return True
 
@@ -262,6 +436,8 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         if self.api:
             with contextlib.suppress(Exception):
                 self.api.close()
+            self.api = None
+            self._current_context = None
 
         transport = None
         try:
@@ -279,7 +455,11 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                 timeout=4.0,
             )
             self.api = Connection(transport)
-            self._current_init = None
+            # Force re-application of the default context on the next
+            # poll — the plan's first group is always default, but
+            # setting _current_context to None makes the comparison
+            # explicit so we don't skip it.
+            self._current_context = None
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning("Connection failed: %s", e)
             if transport is not None:
@@ -287,11 +467,14 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                     transport.close()
             self.api = None
             return False
-        else:
-            return True
+        return True
+
+    # ------------------------------------------------------------------
+    # Voltage gate / battery guard
+    # ------------------------------------------------------------------
 
     def _extract_voltage(self, raw_text: str) -> float | None:
-        """Safely parse voltage numeric floats from AT RV raw response."""
+        """Parse a voltage float from an AT RV raw response."""
         match = _VOLTAGE_RE.search(raw_text)
         if not match:
             return None
@@ -301,7 +484,13 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             return None
 
     def _handle_voltage_check(self, fast_interval: timedelta) -> tuple[str, timedelta]:
-        """Query battery voltage and determine the operational polling state and interval."""
+        """Query battery voltage and determine the polling state + interval.
+
+        Hysteresis: `on_threshold` is used to wake from CAR_OFF;
+        `off_threshold` is used otherwise. A grace period keeps
+        fast polling for `grace_seconds` after the voltage first
+        drops, so brief dips during crank don't immediately sleep.
+        """
         voltage_check_enabled = self.entry.options.get(CONF_VOLTAGE_CHECK, True)
         if not (self.entry.data.get(CONF_ATRV_SUPPORTED) and voltage_check_enabled):
             return PollingState.CAR_ON, fast_interval
@@ -348,119 +537,3 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             )
 
         return PollingState.GRACE_PERIOD, fast_interval
-
-    def _run_queries(self, res_data: dict[str, Any]) -> bool:
-        """Execute the configured profile PID queries. Return True if any succeed."""
-        assert self.api is not None
-
-        profile = parse_profile(self.entry.options.get(CONF_PROFILE, {}))
-        any_success = False
-
-        if not self._current_init and profile.init:
-            for c in profile.init.split(";"):
-                if c:
-                    self.api.transport.write_bytes(c.encode() + b"\r")
-                    self.api.transport.read_bytes()
-            self._current_init = "GLOBAL"
-
-        # Sort PIDs by pid_init so all PIDs sharing the same CAN header /
-        # init string are polled consecutively to avoid slow BLE round-trips.
-        sorted_pids = sorted(profile.pids, key=lambda p: (p.pid_init or "", p.command))
-
-        for pid in sorted_pids:
-            if pid.pid_init and pid.pid_init != self._current_init:
-                for c in pid.pid_init.split(";"):
-                    if c:
-                        self.api.transport.write_bytes(c.encode() + b"\r")
-                        self.api.transport.read_bytes()
-                self._current_init = pid.pid_init
-
-            if len(pid.command) >= 2:
-                cmd: Command[Any] = Command(pid.command[:2], pid.command[2:])
-                resp: Response[Any] = self.api.query(cmd)
-                if resp and resp.raw:
-                    if b"BUFFER FULL" in resp.raw:
-                        continue
-
-                    dirty_array = extract_dirty_array(resp.raw)
-                    if not dirty_array:
-                        continue
-
-                    for param in pid.parameters:
-                        val = evaluate_wican_expression(param.expression, dirty_array)
-                        if val is not None:
-                            res_data[param.name] = val
-                            any_success = True
-
-        return any_success
-
-    def _sync_update(self, ble_dev, active_cmds: list[Command]) -> dict[str, Any]:
-        """Thread-safe update cycle executed inside the executor pool."""
-        with self._lock:
-            res_state = self.state
-            res_interval = self.update_interval
-            res_data = dict(self.data)
-
-            if not self._ensure_connected(ble_dev):
-                self.consecutive_failures += 1
-                return {"failed": True, "error": "Connection to OBD adapter failed"}
-
-            assert self.api is not None
-
-            try:
-                fast_interval = timedelta(
-                    seconds=self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
-                )
-
-                # Voltage Gate Protection
-                res_state, res_interval = self._handle_voltage_check(fast_interval)
-
-                if res_state == PollingState.CAR_OFF:
-                    self.consecutive_failures = 0
-                    return {
-                        "data": res_data,
-                        "state": res_state,
-                        "update_interval": res_interval,
-                        "failed": False,
-                    }
-
-                standard_success = False
-
-                # Run Standard active commands
-                for cmd in active_cmds:
-                    try:
-                        resp = self.api.query(cmd)
-                        if resp and resp.value is not None:
-                            res_data[str(cmd)] = resp
-                            standard_success = True
-                    except Exception as e:  # noqa: BLE001
-                        _LOGGER.debug("Failed updating standard command %s: %s", cmd, e)
-
-                # Run custom profile WiCAN queries
-                profile_data = self.entry.options.get(CONF_PROFILE)
-                profile_success = False
-                if profile_data and profile_data != "{}":
-                    profile_success = self._run_queries(res_data)
-
-                if standard_success or profile_success:
-                    self.last_successful_poll = time.monotonic()
-
-                self.consecutive_failures = 0
-
-            except Exception as e:  # noqa: BLE001
-                _LOGGER.warning(
-                    "Error during polling cycle, resetting connection: %s", e
-                )
-                with contextlib.suppress(Exception):
-                    self.api.close()
-                self.api = None
-                self._current_init = None
-                self.consecutive_failures += 1
-                return {"failed": True, "error": str(e)}
-
-            return {
-                "data": res_data,
-                "state": res_state,
-                "update_interval": res_interval,
-                "failed": False,
-            }

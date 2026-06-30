@@ -1,0 +1,57 @@
+"""Profile importer interface.
+
+Each upstream profile format (WiCAN JSON, future Torque CSV, future
+RealDash XML) gets one importer module that knows the upstream schema
+shape. Everything downstream — storage, scheduling, evaluation — works
+only with the UopsConfig produced by the importer, never with the
+raw upstream dict.
+
+This module deliberately defines ONLY the Protocol. Concrete importers
+live in sibling modules (wican.py, etc.) so the upstream-format
+knowledge stays isolated.
+"""
+
+from typing import Protocol, runtime_checkable
+
+from ..schema import UopsConfig
+
+
+@runtime_checkable
+class ProfileImporter(Protocol):
+    """An importer translates some external profile format into UopsConfig.
+
+    Implementations are responsible for:
+
+      - **Reverse de-duplication**: any parameter that maps to a
+        standard Mode 01 PID must be promoted to `standard_pids` and
+        dropped from `custom_pids`. The match is on address (mode +
+        query hex), not on formula text — see the wican importer for
+        a concrete implementation.
+
+      - **Formula translation**: the upstream notation (e.g. WiCAN's
+        `[B5:B6]`) is converted to canonical UOPS notation (`B(5:6)`).
+
+      - **Header/init extraction**: the upstream's init-strings are
+        parsed into the structured `can_header` / `can_filter` /
+        `init_extra` fields on CustomPid, so the scheduler can group
+        on them as real values.
+
+    `runtime_checkable` so callers can do `isinstance(obj, ProfileImporter)`
+    if they need to dispatch dynamically.
+    """
+
+    def can_handle(self, raw: object) -> bool:
+        """Return True if this importer recognizes the input shape.
+
+        Used by a registry/dispatcher that tries multiple importers
+        against the same raw input. Cheap structural check only — do
+        not validate the full payload here.
+        """
+
+    def import_profile(self, raw: object) -> UopsConfig:
+        """Translate `raw` into a UopsConfig.
+
+        Raises ValueError if `raw` is not a shape this importer can
+        handle. Should never raise on a single bad PID — skip it and
+        continue, so one malformed entry doesn't lose the whole profile.
+        """

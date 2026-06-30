@@ -1,4 +1,15 @@
-"""Constants for Universal OBD BLE."""
+"""Constants for Universal OBD BLE.
+
+Refactored to use the UOPS (Unified OBD Parameter Schema). The old
+CONF_PROFILE (raw WiCAN JSON string) and CONF_COMMANDS (list of
+per-PID config dicts) are gone — replaced by CONF_UOPS, which holds
+the whole tracked set in our internal format.
+
+Per-PID icon/unit/device_class/state_class overrides for standard PIDs
+are no longer stored here — users customize standard-PID entities via
+Home Assistant's native entity settings panel. Custom PIDs carry their
+own metadata in the UOPS structure (see uops/schema.py).
+"""
 
 from typing import Final
 
@@ -8,7 +19,24 @@ DOMAIN: Final = "universal_obd_ble"
 
 PLATFORMS: Final[list[Platform]] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
-CONF_PROFILE: Final = "profile"
+# ---------------------------------------------------------------------------
+# Config entry data (immutable after setup) — device-level facts
+# ---------------------------------------------------------------------------
+
+CONF_ATRV_SUPPORTED: Final = "atrv_supported"  # adapter answers AT RV (in entry.data)
+
+CONF_UUID_READ: Final = "uuid_read"
+CONF_UUID_WRITE: Final = "uuid_write"
+
+DEFAULT_UUID_READ: Final = "0000fff1-0000-1000-8000-00805f9b34fb"
+DEFAULT_UUID_WRITE: Final = "0000fff2-0000-1000-8000-00805f9b34fb"
+
+# ---------------------------------------------------------------------------
+# Config entry options (editable via options flow)
+# ---------------------------------------------------------------------------
+
+CONF_UOPS: Final = "uops"  # dict matching uops.UopsConfig.to_dict()
+
 CONF_VOLTAGE_CHECK: Final = "voltage_check"
 CONF_FAST_POLL: Final = "fast_poll"
 CONF_SLOW_POLL: Final = "slow_poll"
@@ -16,17 +44,6 @@ CONF_XS_POLL: Final = "xs_poll"
 CONF_VOLTAGE_ON: Final = "voltage_on_threshold"
 CONF_VOLTAGE_OFF: Final = "voltage_off_threshold"
 CONF_GRACE_PERIOD: Final = "voltage_grace_seconds"
-CONF_ATRV_SUPPORTED: Final = "atrv_supported"
-
-CONF_UUID_READ: Final = "uuid_read"
-CONF_UUID_WRITE: Final = "uuid_write"
-
-CONF_COMMANDS: Final = "commands"
-CONF_UNIT: Final = "unit"
-CONF_STATE_CLASS: Final = "state_class"
-
-DEFAULT_UUID_READ: Final = "0000fff1-0000-1000-8000-00805f9b34fb"
-DEFAULT_UUID_WRITE: Final = "0000fff2-0000-1000-8000-00805f9b34fb"
 
 DEFAULT_FAST_POLL: Final = 5
 DEFAULT_SLOW_POLL: Final = 300
@@ -35,68 +52,26 @@ DEFAULT_VOLTAGE_ON: Final = 13.1
 DEFAULT_VOLTAGE_OFF: Final = 12.8
 DEFAULT_GRACE_PERIOD: Final = 30
 
+# Debounce for BLE re-discovery callback — prevents connection loops
+# during advertisement storms.
 DEBOUNCE_COOLDOWN: Final = 60
 
 
+# ---------------------------------------------------------------------------
+# Polling state machine
+# ---------------------------------------------------------------------------
+
+
 class PollingState:
-    """States of the vehicle polling coordinator."""
+    """States of the vehicle polling coordinator.
+
+    OUT_OF_RANGE — BLE adapter not seen for >60s; polling at xs_poll.
+    CAR_ON       — voltage above threshold; polling at fast_poll.
+    GRACE_PERIOD — voltage dropped; holding fast_poll for grace_seconds.
+    CAR_OFF      — voltage stayed low; polling at slow_poll.
+    """
 
     OUT_OF_RANGE = "out_of_range"
     CAR_ON = "car_on"
     GRACE_PERIOD = "grace_period"
     CAR_OFF = "car_off"
-
-
-ICON_KEYWORDS: Final[dict[str, str]] = {
-    "rpm": "mdi:engine",
-    "speed": "mdi:speedometer",
-    "velocity": "mdi:speedometer",
-    "temp": "mdi:thermometer",
-    "temperature": "mdi:thermometer",
-    "coolant": "mdi:thermometer",
-    "voltage": "mdi:sine-wave",
-    "volt": "mdi:sine-wave",
-    "v": "mdi:sine-wave",
-    "battery": "mdi:battery",
-    "current": "mdi:current-ac",
-    "pressure": "mdi:gauge",
-    "bar": "mdi:gauge",
-    "psi": "mdi:gauge",
-    "kpa": "mdi:gauge",
-    "vacuum": "mdi:gauge-empty",
-    "fuel": "mdi:gas-station",
-    "ethanol": "mdi:gas-station",
-    "rate": "mdi:gas-station-outline",
-    "level": "mdi:water-percent",
-    "ratio": "mdi:aspect-ratio",
-    "equivalence": "mdi:aspect-ratio",
-    "maf": "mdi:air-filter",
-    "flow": "mdi:air-filter",
-    "air": "mdi:air-conditioner",
-    "throttle": "mdi:speedometer",
-    "egr": "mdi:pipe-valve",
-    "sensor": "mdi:leak",
-    "sensors": "mdi:leak",
-    "o2": "mdi:molecule",
-    "nox": "mdi:smog",
-    "particulate": "mdi:scooter",
-    "dpf": "mdi:smoke-detector-alert",
-    "catalyst": "mdi:factory",
-    "time": "mdi:clock-outline",
-    "runtime": "mdi:timer-outline",
-    "count": "mdi:counter",
-    "counters": "mdi:counter",
-    "distance": "mdi:map-marker-distance",
-    "mil": "mdi:engine-outline",
-    "odometer": "mdi:counter",
-    "load": "mdi:weight",
-    "torque": "mdi:wrench",
-    "trim": "mdi:tune",
-    "trims": "mdi:tune",
-    "advance": "mdi:angle-acute",
-    "vin": "mdi:card-account-details",
-    "id": "mdi:identifier",
-    "cvn": "mdi:shield-check",
-    "dtc": "mdi:alert-octagon",
-    "clear": "mdi:alert-circle-check",
-}
