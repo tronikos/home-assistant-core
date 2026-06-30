@@ -6,7 +6,7 @@ write query bytes to a GATT characteristic, accumulate notify
 responses until the ELM327 `>` prompt arrives, then return them.
 
 Auto-discovers RX/TX GATT characteristics if the configured UUIDs
-don't match — covers adapters with non-standard Nordic UART-like
+don't match - covers adapters with non-standard Nordic UART-like
 profiles.
 """
 

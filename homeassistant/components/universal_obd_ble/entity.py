@@ -1,6 +1,6 @@
 """Common parent class for all Universal OBD BLE entities.
 
-Unchanged from the pre-refactor version — links every entity to the
+Unchanged from the pre-refactor version - links every entity to the
 single Bluetooth device entry created from the config flow.
 """
 

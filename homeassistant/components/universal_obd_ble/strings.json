@@ -36,7 +36,7 @@
         "data": {
           "profile": "Vehicle Profile"
         },
-        "description": "Choose a vehicle profile. Built-in profiles are listed first; vehicle-specific profiles fetched from the WiCAN project are translated into the integration's internal format on selection. Choose 'None / Standard OBD-II Only' if you only want standard Mode 01 PIDs — you can add custom PIDs later via the Options screen.",
+        "description": "Choose a vehicle profile. Built-in profiles are listed first; vehicle-specific profiles fetched from the WiCAN project are translated into the integration's internal format on selection. Choose 'None / Standard OBD-II Only' if you only want standard Mode 01 PIDs - you can add custom PIDs later via the Options screen.",
         "title": "Select Vehicle Profile"
       }
     }
@@ -69,7 +69,7 @@
           "state_class": "Measurement behavior",
           "unit": "Unit of measurement"
         },
-        "description": "**{action}: {pid_name}**\n\nFormulas use the integration's canonical notation:\n• `B(n)` — unsigned byte at index n\n• `B(n, m)` — big-endian unsigned word, bytes n..m inclusive\n• `S(n)` / `S(n, m)` — signed equivalents\n• `BIT(b, n)` — single bit n of byte b\n\nOperators: `+ - * / // % ** & | ^ ~ << >>`\n\nThe formula is validated against a strict whitelist before saving — no attribute access, function calls (other than B/S/BIT), or names are permitted.",
+        "description": "**{action}: {pid_name}**\n\nFormulas use the integration's canonical notation:\n• `B(n)` - unsigned byte at index n\n• `B(n, m)` - big-endian unsigned word, bytes n..m inclusive\n• `S(n)` / `S(n, m)` - signed equivalents\n• `BIT(b, n)` - single bit n of byte b\n\nOperators: `+ - * / // % ** & | ^ ~ << >>`\n\nThe formula is validated against a strict whitelist before saving - no attribute access, function calls (other than B/S/BIT), or names are permitted.",
         "title": "Add / Edit Custom PID"
       },
       "custom_pids": {

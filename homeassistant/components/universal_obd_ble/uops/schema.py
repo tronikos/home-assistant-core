@@ -1,4 +1,4 @@
-"""UOPS — Unified OBD Parameter Schema.
+"""UOPS - Unified OBD Parameter Schema.
 
 Pure dataclasses. No I/O, no HA imports, no obdii dependency.
 
@@ -27,7 +27,7 @@ class CustomPid:
     name: str
     mode: str  # hex mode byte as text, e.g. "01", "22"
     query: str  # hex PID/DID payload, e.g. "0C", "028C1"
-    formula: str  # canonical UOPS expression source — see compiler.py
+    formula: str  # canonical UOPS expression source - see compiler.py
     can_header: str | None = None  # ATSH target, e.g. "7E5"; None = adapter default
     can_filter: str | None = (
         None  # ATCRA expected reply id, e.g. "7ED"; None = no filter
@@ -50,7 +50,7 @@ class CustomPid:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CustomPid:
         """Deserialize from a stored dict, ignoring unknown keys for forward-compat."""
-        # Only take fields we know about — forward-compatible if extra
+        # Only take fields we know about - forward-compatible if extra
         # keys appear in stored JSON from a newer integration version.
         known = set(cls.__dataclass_fields__)
         return cls(**{k: v for k, v in data.items() if k in known})

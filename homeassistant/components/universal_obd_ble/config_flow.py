@@ -2,24 +2,24 @@
 
 Refactored to use the UOPS library. The setup flow is 4 steps:
 
-  1. user / bluetooth  — device discovery + connection test
-  2. connection        — UUID fallback (only when auto-detect fails)
-  3. vehicle           — pick a built-in UOPS profile, or fetch the
+  1. user / bluetooth  - device discovery + connection test
+  2. connection        - UUID fallback (only when auto-detect fails)
+  3. vehicle           - pick a built-in UOPS profile, or fetch the
                          WiCAN profile list and translate one into UOPS
-  4. standard_pids     — multiselect of standard Mode 01 PIDs,
+  4. standard_pids     - multiselect of standard Mode 01 PIDs,
                          preselected from defaults + profile-derived
                          standards; live ECU scan if reachable
 
-The setup flow does NOT ask for polling/battery config — sensible
+The setup flow does NOT ask for polling/battery config - sensible
 defaults are written to entry.options and the user adjusts them via
 the options flow. The setup flow does NOT include a JSON editor or
-a per-PID 4-field loop — both are gone.
+a per-PID 4-field loop - both are gone.
 
 Options flow has 3 menu items:
 
-  - polling        — voltage thresholds + poll intervals
-  - standard_pids  — multiselect, live ECU re-scan
-  - custom_pids    — master-detail: list -> action -> edit form
+  - polling        - voltage thresholds + poll intervals
+  - standard_pids  - multiselect, live ECU re-scan
+  - custom_pids    - master-detail: list -> action -> edit form
                      with formula whitelist validation on save
 """
 
@@ -85,7 +85,7 @@ from .uops import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# WiCAN's vehicle_profiles.json — fetched at runtime, translated to
+# WiCAN's vehicle_profiles.json - fetched at runtime, translated to
 # UOPS via import_wican_profile. Nothing from the source JSON is
 # persisted or redistributed; only the resulting UopsConfig is stored
 # in the user's HA config entry.
@@ -161,7 +161,7 @@ def _all_known_standard_pid_names() -> list[str]:
 async def _async_fetch_wican_profiles(hass) -> dict[str, dict[str, Any]]:
     """Fetch WiCAN's vehicle_profiles.json, return {car_model: raw_dict}.
 
-    Returns {} on any failure (network, parse, shape mismatch) — the
+    Returns {} on any failure (network, parse, shape mismatch) - the
     caller falls back to built-in profiles only. Nothing from the
     source JSON is persisted; only the translated UopsConfig is.
     """
@@ -209,7 +209,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._uuid_read: str = DEFAULT_UUID_READ
         self._uuid_write: str = DEFAULT_UUID_WRITE
         self._discovered_characteristics: list[BleakGATTCharacteristic] = []
-        # The UOPS config built from the chosen vehicle profile — read
+        # The UOPS config built from the chosen vehicle profile - read
         # by async_step_standard_pids to derive the preselected set.
         self._profile_uops: UopsConfig = UopsConfig()
         # Cached supported-PID scan result (from the connection test).
@@ -251,7 +251,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             final_read = transport.config.get("uuid_read", final_read)
             resp = conn.query(Command(Mode.AT, "RV"))
 
-            # Best-effort supported-PID scan — non-fatal if it fails
+            # Best-effort supported-PID scan - non-fatal if it fails
             # (car may be off, ECU may not respond to Mode 01 PID 00).
             try:
                 scanned = scan_supported_pids(conn)
@@ -330,7 +330,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return await self.async_step_vehicle()
 
     async def async_step_user(self, user_input=None) -> config_entries.ConfigFlowResult:
-        """Standard user setup step — pick a discovered BLE device."""
+        """Standard user setup step - pick a discovered BLE device."""
         errors = {}
         if user_input is not None:
             self._address = user_input[CONF_ADDRESS]
@@ -469,7 +469,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Built-in profiles are loaded by name; WiCAN-fetched
                 # ones are translated on the fly. We stash both kinds
                 # in self._wican_profiles as raw dicts, keyed by
-                # car_model — but built-ins take precedence.
+                # car_model - but built-ins take precedence.
                 builtin = load_builtin_profile(choice)
                 if builtin is not None:
                     self._profile_uops = builtin
@@ -604,7 +604,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
             options={
                 CONF_UOPS: uops.to_dict(),
-                # Polling defaults — user adjusts via options flow.
+                # Polling defaults - user adjusts via options flow.
                 CONF_VOLTAGE_CHECK: True,
                 CONF_FAST_POLL: DEFAULT_FAST_POLL,
                 CONF_SLOW_POLL: DEFAULT_SLOW_POLL,
@@ -637,16 +637,16 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
     """Handle options adjustment post-setup.
 
     Three menu items:
-      - polling       — voltage + poll intervals
-      - standard_pids — multiselect with live ECU re-scan
-      - custom_pids   — master-detail Add/Edit/Delete with formula validation
+      - polling       - voltage + poll intervals
+      - standard_pids - multiselect with live ECU re-scan
+      - custom_pids   - master-detail Add/Edit/Delete with formula validation
     """
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow state."""
         super().__init__()
         self._options = dict(config_entry.options)
-        # The working copy of the UOPS config — mutated by the custom
+        # The working copy of the UOPS config - mutated by the custom
         # PID add/edit/delete steps, then written back to options on save.
         self._uops = UopsConfig.from_dict(self._options.get(CONF_UOPS, {}))
         # Track the PID currently being edited (by id), or None for "add new".
@@ -791,7 +791,7 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
         )
 
     # ------------------------------------------------------------------
-    # Custom PIDs — master-detail controller
+    # Custom PIDs - master-detail controller
     # ------------------------------------------------------------------
 
     async def async_step_custom_pids(
@@ -805,13 +805,13 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_custom_pid_edit()
             if action == _ACTION_BACK:
                 return await self.async_step_init()
-            # Otherwise: action is a PID id — go to the edit form for it.
+            # Otherwise: action is a PID id - go to the edit form for it.
             self._editing_pid_id = action
             return await self.async_step_custom_pid_edit()
 
         # Build the actions dropdown: Add + one entry per existing PID.
         # Sort existing PIDs by CAN header so PIDs sharing a header
-        # group visually — a small UI nudge toward the CAN-grouping
+        # group visually - a small UI nudge toward the CAN-grouping
         # concept the scheduler uses.
         sorted_pids = sorted(
             self._uops.custom_pids,
@@ -863,7 +863,7 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                 None,
             )
             if existing is None:
-                # Stale id — bail back to the list.
+                # Stale id - bail back to the list.
                 return await self.async_step_custom_pids()
 
         if user_input is not None:
@@ -877,7 +877,7 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                     return self._async_save_options()
                 return await self.async_step_custom_pids()
 
-            # Validate the formula (stages 1+2 — no bytecode compile here,
+            # Validate the formula (stages 1+2 - no bytecode compile here,
             # that happens at coordinator startup).
             formula = (user_input.get("formula") or "").strip()
             try:

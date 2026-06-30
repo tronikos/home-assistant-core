@@ -2,7 +2,7 @@
 
 Each upstream profile format (WiCAN JSON, future Torque CSV, future
 RealDash XML) gets one importer module that knows the upstream schema
-shape. Everything downstream — storage, scheduling, evaluation — works
+shape. Everything downstream - storage, scheduling, evaluation - works
 only with the UopsConfig produced by the importer, never with the
 raw upstream dict.
 
@@ -25,7 +25,7 @@ class ProfileImporter(Protocol):
       - **Reverse de-duplication**: any parameter that maps to a
         standard Mode 01 PID must be promoted to `standard_pids` and
         dropped from `custom_pids`. The match is on address (mode +
-        query hex), not on formula text — see the wican importer for
+        query hex), not on formula text - see the wican importer for
         a concrete implementation.
 
       - **Formula translation**: the upstream notation (e.g. WiCAN's
@@ -44,7 +44,7 @@ class ProfileImporter(Protocol):
         """Return True if this importer recognizes the input shape.
 
         Used by a registry/dispatcher that tries multiple importers
-        against the same raw input. Cheap structural check only — do
+        against the same raw input. Cheap structural check only - do
         not validate the full payload here.
         """
 
@@ -52,6 +52,6 @@ class ProfileImporter(Protocol):
         """Translate `raw` into a UopsConfig.
 
         Raises ValueError if `raw` is not a shape this importer can
-        handle. Should never raise on a single bad PID — skip it and
+        handle. Should never raise on a single bad PID - skip it and
         continue, so one malformed entry doesn't lose the whole profile.
         """

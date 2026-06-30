@@ -1,16 +1,16 @@
 """Built-in vehicle profiles in UOPS internal format.
 
-These are original works authored by the integration maintainers —
+These are original works authored by the integration maintainers -
 NOT derivatives of any upstream GPL-licensed profile database.
 
   - The CAN PID addresses (e.g. "028C1" for VW e-Golf SOC) are factual
-    data about the vehicles' CAN buses — facts are not copyrightable
+    data about the vehicles' CAN buses - facts are not copyrightable
     in any jurisdiction.
   - The formulas are expressed in UOPS canonical notation designed
     specifically for this integration (B(n), B(n:m), S(n), S(n:m),
-    BIT(b, n)) — not copied from WiCAN's `[B5:B6]` notation.
+    BIT(b, n)) - not copied from WiCAN's `[B5:B6]` notation.
   - The JSON schema is the UopsConfig schema designed for this
-    integration — not the WiCAN profile schema.
+    integration - not the WiCAN profile schema.
 
 For a wider selection of vehicle profiles, the integration fetches
 WiCAN's vehicle_profiles.json at runtime from meatpiHQ/wican-fw and
@@ -46,7 +46,7 @@ def load_builtin_profile(name: str) -> UopsConfig | None:
     """Return the named built-in profile as a UopsConfig, or None if not found.
 
     Name match is exact and case-sensitive. Built-in profile names are
-    defined in builtin.json and are stable across releases — adding a
+    defined in builtin.json and are stable across releases - adding a
     new profile is safe, renaming an existing one would orphan user
     entity unique-ids.
     """
@@ -63,7 +63,7 @@ def _entry_to_uops(entry: dict[str, Any]) -> UopsConfig:
         # Built-in profiles use stable string IDs (e.g. "egolf-soc-bms")
         # so entity unique-ids don't change across HA restarts or
         # integration upgrades. If a built-in entry is missing `id`,
-        # fall back to a name-derived slug — but every entry in
+        # fall back to a name-derived slug - but every entry in
         # builtin.json should have one.
         if "id" not in cp_dict:
             continue

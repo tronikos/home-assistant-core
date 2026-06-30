@@ -8,13 +8,13 @@ in our config entry.
 
 Two entity classes:
 
-  - UniversalObdStandardSensor — for standard Mode 01 PIDs from
+  - UniversalObdStandardSensor - for standard Mode 01 PIDs from
     uops.standard_pids. Uses uops heuristics for icon/device_class/
     state_class/units. The coordinator stores the resolver's typed
     value (float, int, list, str); this sensor formats lists/tuples
     into comma-joined strings for display.
 
-  - UniversalObdCustomSensor — for custom PIDs from uops.custom_pids.
+  - UniversalObdCustomSensor - for custom PIDs from uops.custom_pids.
     Uses the per-PID metadata carried in the UOPS structure
     (unit/device_class/state_class set by the user in the Master-Detail
     options screen). The coordinator stores a float (or None) for
@@ -124,7 +124,7 @@ async def async_setup_entry(
         command = get_standard_command(name)
         if command is None:
             _LOGGER.warning(
-                "Standard PID %s not in obdii registry — skipping entity", name
+                "Standard PID %s not in obdii registry - skipping entity", name
             )
             continue
         entities.append(UniversalObdStandardSensor(coordinator, entry, name, command))
@@ -182,7 +182,7 @@ class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
     """Sensor for a custom PID.
 
     Unit, device_class, state_class, icon, min, max all come from the
-    CustomPid dataclass in the UOPS — set by the user in the options
+    CustomPid dataclass in the UOPS - set by the user in the options
     flow's Master-Detail custom PID editor. The coordinator stores a
     float (or None) per custom PID.
     """
@@ -197,7 +197,7 @@ class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
         super().__init__(coordinator, config_entry)
         self._pid = pid
         self._attr_name = pid.name
-        # Stable id keyed on pid.id — renaming the display name does
+        # Stable id keyed on pid.id - renaming the display name does
         # NOT orphan the entity. Only deleting the PID does.
         self._attr_unique_id = f"{config_entry.unique_id}-custom-{pid.id}"
 
@@ -237,7 +237,7 @@ class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
         # Expose min_value / max_value as extra state attributes so
         # frontend gauge cards can use them for range visualization.
         # NOTE: _attr_native_min_value / _attr_native_max_value are
-        # NumberEntity properties, NOT SensorEntity — setting them on
+        # NumberEntity properties, NOT SensorEntity - setting them on
         # a SensorEntity is a silent no-op (HA ignores unknown _attr_*
         # assignments). Extra state attributes are the correct channel
         # for exposing advisory metadata on a sensor.

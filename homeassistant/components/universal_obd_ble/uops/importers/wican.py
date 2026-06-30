@@ -67,7 +67,7 @@ _WICAN_AT_CMD_RE: re.Pattern[str] = re.compile(
 def import_wican_profile(raw: dict[str, Any]) -> UopsConfig:
     """Translate a WiCAN profile dict into a UopsConfig.
 
-    Never raises on a single bad PID — skips it and continues, so one
+    Never raises on a single bad PID - skips it and continues, so one
     malformed entry doesn't lose the whole profile. Raises TypeError
     only if `raw` is not a dict at all.
     """
@@ -78,7 +78,7 @@ def import_wican_profile(raw: dict[str, Any]) -> UopsConfig:
     standard: set[str] = set()
     custom: list[CustomPid] = []
 
-    # Optional profile-level init (e.g. ATSP6;ATST96;) — applied to
+    # Optional profile-level init (e.g. ATSP6;ATST96;) - applied to
     # every PID in the profile. We merge it into each PID's
     # `init_extra` (deduplicated) so the scheduler groups correctly.
     # A future improvement could hoist it onto UopsConfig itself if
@@ -98,7 +98,7 @@ def import_wican_profile(raw: dict[str, Any]) -> UopsConfig:
 
             # Reverse de-dup: Mode 01 PIDs with a known standard name get
             # promoted to standard_pids and dropped from custom_pids.
-            # The match is on address (mode + query), not on formula —
+            # The match is on address (mode + query), not on formula -
             # see _match_standard_pid docstring.
             std_name = _match_standard_pid(mode, query)
             if std_name:
@@ -249,7 +249,7 @@ def _match_standard_pid(mode: str, query: str) -> str | None:
     The match is on address (mode + PID hex), not on formula text. If a
     manufacturer ships a remapped/rescaled version of a standard PID
     under the same address, the wire command is what determines whether
-    it can be served by the native obdii Mode 01 path — so we promote
+    it can be served by the native obdii Mode 01 path - so we promote
     it to `standard_pids` and drop the custom formula. This is the
     "Reverse De-duplication Strategy" requirement.
 

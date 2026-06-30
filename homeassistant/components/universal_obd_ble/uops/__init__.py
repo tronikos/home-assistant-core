@@ -1,4 +1,4 @@
-"""Unified OBD Parameter Schema (UOPS) — the underlying library.
+"""Unified OBD Parameter Schema (UOPS) - the underlying library.
 
 This package is intentionally free of any `homeassistant.*` import so
 it can be lifted out into its own PyPI package later without changes.
@@ -27,7 +27,7 @@ Public surface
 Typical call sites
 ------------------
 
-  Config flow (validate only — no bytecode):
+  Config flow (validate only - no bytecode):
       from .uops import validate_formula
       try:
           validate_formula(user_input["formula"])

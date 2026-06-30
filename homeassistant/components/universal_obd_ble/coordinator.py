@@ -10,14 +10,14 @@ Instead it builds a single `query_plan` once at startup (rebuilt on
 options reload) by combining standard Mode 01 commands and custom
 PIDs into one ordered list of (CanContext, [QueryItem]) groups. Each
 poll tick walks the plan in order, switching ATSH/ATCRA only when
-the context changes BETWEEN groups — including transitioning back
+the context changes BETWEEN groups - including transitioning back
 to the default (header=None) context, which fixes the stale-header
 bug where standard PIDs silently inherited a custom PID's header
 filter from the previous cycle.
 
 Voltage gating, battery-guard state machine, BLE-out-of-range sweep,
 and the synchronous executor dispatch are preserved from the
-pre-refactor design — those concerns are orthogonal to the UOPS work.
+pre-refactor design - those concerns are orthogonal to the UOPS work.
 """
 
 import contextlib
@@ -98,14 +98,14 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         self.last_discovery_attempt: float = 0.0
         self._offline_since: float | None = None
 
-        # The query plan — built once at startup from entry.options[CONF_UOPS].
+        # The query plan - built once at startup from entry.options[CONF_UOPS].
         # Rebuilt on options reload (the entry is fully reloaded by
         # update_options_listener in __init__.py, so a fresh coordinator
         # instance gets a fresh plan).
         self._query_plan: list[tuple[CanContext, list[QueryItem]]] = []
         self._build_query_plan()
 
-        # Thread synchronization lock — held for the entire _sync_update
+        # Thread synchronization lock - held for the entire _sync_update
         # cycle to prevent the options flow's PID scan from interleaving
         # with a poll tick.
         self._lock = threading.Lock()
@@ -120,7 +120,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         Standard Mode 01 PIDs and custom PIDs are combined into a
         single plan grouped by CAN context. The default context
         (header=None) always comes first, so standard PIDs run before
-        any ATSH reconfiguration — and the plan naturally transitions
+        any ATSH reconfiguration - and the plan naturally transitions
         back to default at the start of every cycle.
         """
         uops_dict = self.entry.options.get(CONF_UOPS, {})
@@ -132,7 +132,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             command = get_standard_command(name)
             if command is None:
                 _LOGGER.warning(
-                    "Standard PID %s not found in obdii registry — skipping", name
+                    "Standard PID %s not found in obdii registry - skipping", name
                 )
                 continue
             items.append(StandardQueryItem(command_name=name, command=command))
@@ -162,7 +162,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                 evaluator = make_evaluator(pid.formula)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error(
-                    "Custom PID %s has invalid formula %r — skipping: %s",
+                    "Custom PID %s has invalid formula %r - skipping: %s",
                     pid.name,
                     pid.formula,
                     err,
@@ -228,7 +228,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             ble_device = async_ble_device_from_address(self.hass, address, True)
             if ble_device is None:
                 raise UpdateFailed(
-                    "BLE adapter not in range — cannot scan supported PIDs"
+                    "BLE adapter not in range - cannot scan supported PIDs"
                 )
             connected = await self.hass.async_add_executor_job(
                 self._ensure_connected, ble_device
@@ -255,7 +255,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         if not async_address_present(self.hass, address, connectable=True):
             if self._offline_since is None:
                 self._offline_since = time.monotonic()
-            # Grace period before expanding poll interval — keeps the
+            # Grace period before expanding poll interval - keeps the
             # entity responsive through brief BLE dropouts.
             if time.monotonic() - self._offline_since > 60:
                 self.state = PollingState.OUT_OF_RANGE
@@ -270,7 +270,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         if ble_dev is None:
             raise UpdateFailed(f"BLE device not found for address {address}")
 
-        # Snapshot the plan on the event loop — the options flow could
+        # Snapshot the plan on the event loop - the options flow could
         # otherwise mutate it mid-cycle if a reload interleaves.
         plan = list(self._query_plan)
 
@@ -308,7 +308,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
                     seconds=self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
                 )
 
-                # Voltage gate — may transition to CAR_OFF and skip the query plan.
+                # Voltage gate - may transition to CAR_OFF and skip the query plan.
                 res_state, res_interval = self._handle_voltage_check(fast_interval)
 
                 if res_state != PollingState.CAR_OFF:
@@ -345,7 +345,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
 
         Returns True if at least one query succeeded. The plan is
         ordered with the default context first, so standard Mode 01
-        PIDs always run before any ATSH reconfiguration — and the
+        PIDs always run before any ATSH reconfiguration - and the
         plan naturally transitions back to default at the start of
         every cycle, which fixes the stale-header bug.
         """
@@ -377,7 +377,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
 
         Sends ATSH (set header), ATCRA (set receive address), and any
         extra AT commands the context carries. For the default context
-        (all None), this is a no-op — the adapter retains whatever
+        (all None), this is a no-op - the adapter retains whatever
         addressing it had, which is fine because standard Mode 01
         queries use functional broadcast 7DF and don't depend on a
         specific receive filter.
@@ -409,7 +409,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         """Write a single AT command + CR, then drain the response.
 
         The ELM327 acknowledges AT commands with `OK` (or sometimes
-        just `>`). We don't parse the ack — we just drain up to the
+        just `>`). We don't parse the ack - we just drain up to the
         prompt so the next query starts with a clean buffer.
         """
         try:
@@ -457,7 +457,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             )
             self.api = Connection(transport)
             # Force re-application of the default context on the next
-            # poll — the plan's first group is always default, but
+            # poll - the plan's first group is always default, but
             # setting _current_context to None makes the comparison
             # explicit so we don't skip it.
             self._current_context = None

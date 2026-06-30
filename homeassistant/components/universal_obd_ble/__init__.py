@@ -1,4 +1,4 @@
-"""Universal OBD BLE integration — entry point.
+"""Universal OBD BLE integration - entry point.
 
 Sets up the coordinator, forwards entry setup to the sensor and
 binary_sensor platforms, registers a BLE re-discovery callback so
@@ -35,7 +35,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = UniversalObdCoordinator(hass, entry)
     entry.runtime_data = coordinator
 
-    # First refresh — suppress exceptions so entities still register
+    # First refresh - suppress exceptions so entities still register
     # (as unavailable) if the car is off or out of range at startup.
     with contextlib.suppress(Exception):
         await coordinator.async_config_entry_first_refresh()
@@ -52,7 +52,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         now = time.monotonic()
 
-        # Debounce advertisement storms — only request a refresh if
+        # Debounce advertisement storms - only request a refresh if
         # we haven't attempted one in the last DEBOUNCE_COOLDOWN seconds.
         if (now - coordinator.last_discovery_attempt) > DEBOUNCE_COOLDOWN:
             coordinator.last_discovery_attempt = now
@@ -86,7 +86,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded: Final = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         coordinator: UniversalObdCoordinator = entry.runtime_data
-        # Disconnect from the executor pool — the BLE transport's
+        # Disconnect from the executor pool - the BLE transport's
         # close() runs synchronous I/O that can't happen on the loop.
         await hass.async_add_executor_job(coordinator.disconnect)
     return unloaded

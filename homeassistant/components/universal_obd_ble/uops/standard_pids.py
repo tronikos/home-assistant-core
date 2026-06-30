@@ -5,12 +5,12 @@ different places in the integration:
 
   - The list of recommended default PIDs to preselect (today hardcoded
     in three places in config_flow.py, with names that don't all match
-    the obdii library — see "Why this matters" below).
+    the obdii library - see "Why this matters" below).
 
   - Entity-metadata heuristics (icon, device_class, state_class, units)
-    for standard PIDs — today in sensor.py.
+    for standard PIDs - today in sensor.py.
 
-  - The supported-PID scan (Mode 01 PID 00/20/40/.../C0 bitmap walk) —
+  - The supported-PID scan (Mode 01 PID 00/20/40/.../C0 bitmap walk) -
     today only on the coordinator, which doesn't exist during the
     config flow's initial setup.
 
@@ -24,7 +24,7 @@ Why this matters
 Today the recommended-defaults list is hand-typed in three places
 in config_flow.py as: RPM, SPEED, COOLANT_TEMP, MAF, RUN_TIME,
 CONTROL_MODULE_VOLTAGE, ... Checked against `modes/mode_01.py` in
-the obdii library, none of those names exist there — the actual
+the obdii library, none of those names exist there - the actual
 attributes are ENGINE_SPEED, VEHICLE_SPEED, ENGINE_COOLANT_TEMP,
 MAF_RATE, ENGINE_RUN_TIME, VEHICLE_VOLTAGE. GroupCommands.__getitem__
 does a plain getattr with no aliasing, so commands["RPM"] raises
@@ -39,7 +39,7 @@ from typing import Final
 
 from obdii import Command, commands
 
-# Recommended defaults — preselected on the standard-PID multiselect.
+# Recommended defaults - preselected on the standard-PID multiselect.
 # Validated at import time so a typo in this list fails immediately,
 # not the first time a user opens the config flow.
 RECOMMENDED_DEFAULTS: Final[list[str]] = [
@@ -58,7 +58,7 @@ for _name in RECOMMENDED_DEFAULTS:
     if _name not in commands[1]:
         raise RuntimeError(
             f"RECOMMENDED_DEFAULTS references {_name!r} which is not a real "
-            f"obdii Mode 01 command — check uops/standard_pids.py against the "
+            f"obdii Mode 01 command - check uops/standard_pids.py against the "
             f"pinned py-obdii version"
         )
 del _name
@@ -162,7 +162,7 @@ def propose_device_class(command: Command) -> str | None:
 
 
 def propose_state_class(command: Command) -> str | None:
-    """Heuristic StateClass suggestion — 'measurement' or 'total_increasing'.
+    """Heuristic StateClass suggestion - 'measurement' or 'total_increasing'.
 
     Odometer, runtime, and absolute-distance counters are monotonic
     (total_increasing). Everything else is instantaneous (measurement).
@@ -194,8 +194,8 @@ def scan_supported_pids(connection) -> list[str]:
 
     Returns a list of canonical command names (e.g. ["ENGINE_SPEED",
     "VEHICLE_SPEED", ...]) sorted by PID number. If the scan fails at
-    any point — adapter returns no data, the ECU is offline, the user
-    turned the car off mid-scan — returns an empty list, and the
+    any point - adapter returns no data, the ECU is offline, the user
+    turned the car off mid-scan - returns an empty list, and the
     caller falls back to RECOMMENDED_DEFAULTS (with a UI warning, per
     the Gemini 3.1 Pro suggestion).
     """
@@ -223,7 +223,7 @@ def scan_supported_pids(connection) -> list[str]:
             except KeyError:
                 continue
             if cmd_obj and cmd_obj.name != "Unnamed":
-                # Skip the bitmap PIDs themselves — they're not
+                # Skip the bitmap PIDs themselves - they're not
                 # user-trackable parameters, just metadata.
                 if not cmd_obj.name.startswith("SUPPORTED_PIDS"):
                     supported.append(cmd_obj.name)

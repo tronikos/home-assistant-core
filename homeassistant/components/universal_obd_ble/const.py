@@ -2,11 +2,11 @@
 
 Refactored to use the UOPS (Unified OBD Parameter Schema). The old
 CONF_PROFILE (raw WiCAN JSON string) and CONF_COMMANDS (list of
-per-PID config dicts) are gone — replaced by CONF_UOPS, which holds
+per-PID config dicts) are gone - replaced by CONF_UOPS, which holds
 the whole tracked set in our internal format.
 
 Per-PID icon/unit/device_class/state_class overrides for standard PIDs
-are no longer stored here — users customize standard-PID entities via
+are no longer stored here - users customize standard-PID entities via
 Home Assistant's native entity settings panel. Custom PIDs carry their
 own metadata in the UOPS structure (see uops/schema.py).
 """
@@ -20,7 +20,7 @@ DOMAIN: Final = "universal_obd_ble"
 PLATFORMS: Final[list[Platform]] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 # ---------------------------------------------------------------------------
-# Config entry data (immutable after setup) — device-level facts
+# Config entry data (immutable after setup) - device-level facts
 # ---------------------------------------------------------------------------
 
 CONF_ATRV_SUPPORTED: Final = "atrv_supported"  # adapter answers AT RV (in entry.data)
@@ -52,7 +52,7 @@ DEFAULT_VOLTAGE_ON: Final = 13.1
 DEFAULT_VOLTAGE_OFF: Final = 12.8
 DEFAULT_GRACE_PERIOD: Final = 30
 
-# Debounce for BLE re-discovery callback — prevents connection loops
+# Debounce for BLE re-discovery callback - prevents connection loops
 # during advertisement storms.
 DEBOUNCE_COOLDOWN: Final = 60
 
@@ -65,10 +65,10 @@ DEBOUNCE_COOLDOWN: Final = 60
 class PollingState:
     """States of the vehicle polling coordinator.
 
-    OUT_OF_RANGE — BLE adapter not seen for >60s; polling at xs_poll.
-    CAR_ON       — voltage above threshold; polling at fast_poll.
-    GRACE_PERIOD — voltage dropped; holding fast_poll for grace_seconds.
-    CAR_OFF      — voltage stayed low; polling at slow_poll.
+    OUT_OF_RANGE - BLE adapter not seen for >60s; polling at xs_poll.
+    CAR_ON       - voltage above threshold; polling at fast_poll.
+    GRACE_PERIOD - voltage dropped; holding fast_poll for grace_seconds.
+    CAR_OFF      - voltage stayed low; polling at slow_poll.
     """
 
     OUT_OF_RANGE = "out_of_range"
