@@ -1,4 +1,8 @@
-"""Diagnostic binary sensors for Universal OBD BLE."""
+"""Diagnostic binary sensors for Universal OBD BLE.
+
+Unchanged in behavior from the pre-refactor version — surfaces two
+diagnostic connectivity sensors (BLE link up, vehicle responding).
+"""
 
 import logging
 
@@ -55,7 +59,7 @@ async def async_setup_entry(
 
 
 class UniversalObdBleBinarySensor(UniversalObdEntity, BinarySensorEntity):
-    """Representation of a Universal OBD BLE diagnostic binary sensor."""
+    """Diagnostic binary sensor backed by a coordinator property callable."""
 
     def __init__(
         self,

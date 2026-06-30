@@ -1,4 +1,11 @@
-"""Initializes and unloads the Universal OBD BLE config entries."""
+"""Universal OBD BLE integration — entry point.
+
+Sets up the coordinator, forwards entry setup to the sensor and
+binary_sensor platforms, registers a BLE re-discovery callback so
+the coordinator requests a refresh as soon as the adapter comes
+back in range, and reloads the entry on options changes so the
+coordinator rebuilds its UOPS query plan.
+"""
 
 import contextlib
 import logging
@@ -18,7 +25,7 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up this integration using UI."""
+    """Set up this integration from a config entry."""
     if not entry.unique_id:
         raise ConfigEntryError(
             translation_domain=DOMAIN,
@@ -28,8 +35,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = UniversalObdCoordinator(hass, entry)
     entry.runtime_data = coordinator
 
-    # Ensure entities populate with initial state at startup before forwarding setup
-    # Suppress exceptions so entities still register (as unavailable) if the car is currently off/out-of-range.
+    # First refresh — suppress exceptions so entities still register
+    # (as unavailable) if the car is off or out of range at startup.
     with contextlib.suppress(Exception):
         await coordinator.async_config_entry_first_refresh()
 
@@ -45,14 +52,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         now = time.monotonic()
 
-        # Debounce to prevent constant connection loops from BLE advertisement storms
-        # utilizing the timestamp of the last actual attempt (not just successful polls)
+        # Debounce advertisement storms — only request a refresh if
+        # we haven't attempted one in the last DEBOUNCE_COOLDOWN seconds.
         if (now - coordinator.last_discovery_attempt) > DEBOUNCE_COOLDOWN:
             coordinator.last_discovery_attempt = now
             _LOGGER.debug("Initiating debounced arrival update for coordinator")
             hass.async_create_task(coordinator.async_request_refresh())
 
-    # Active Scanning Mode Gating
     entry.async_on_unload(
         bluetooth.async_register_callback(
             hass,
@@ -63,7 +69,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     async def update_options_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Reload configuration on update."""
+        """Reload the config entry when options change.
+
+        A full reload creates a fresh coordinator, which rebuilds its
+        UOPS query plan from the updated entry.options[CONF_UOPS].
+        """
         await hass.config_entries.async_reload(entry.entry_id)
 
     entry.async_on_unload(entry.add_update_listener(update_options_listener))
@@ -72,11 +82,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Handle removal of an entry cleanly."""
+    """Handle removal of a config entry."""
     unloaded: Final = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        coordinator = entry.runtime_data
-        # Safely delegate disconnection to the thread pool to execute the synchronous close,
-        # unblocking any threads waiting on `self._data_ready.wait()`
+        coordinator: UniversalObdCoordinator = entry.runtime_data
+        # Disconnect from the executor pool — the BLE transport's
+        # close() runs synchronous I/O that can't happen on the loop.
         await hass.async_add_executor_job(coordinator.disconnect)
     return unloaded

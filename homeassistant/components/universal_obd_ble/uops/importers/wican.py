@@ -150,11 +150,11 @@ class WicanImporter:
     """
 
     def can_handle(self, raw: object) -> bool:
-        """Check if the raw data is a valid WiCAN profile dictionary."""
+        """Return True if `raw` looks like a WiCAN profile dict."""
         return isinstance(raw, dict) and ("pids" in raw or "car_model" in raw)
 
     def import_profile(self, raw: object) -> UopsConfig:
-        """Import a WiCAN profile and return the parsed configuration."""
+        """Translate a WiCAN profile dict into a UopsConfig."""
         if not isinstance(raw, dict):
             raise TypeError(f"WiCAN profile must be a dict, got {type(raw).__name__}")
         return import_wican_profile(raw)

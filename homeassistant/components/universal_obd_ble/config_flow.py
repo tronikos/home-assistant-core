@@ -214,6 +214,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._profile_uops: UopsConfig = UopsConfig()
         # Cached supported-PID scan result (from the connection test).
         self._scanned_supported: list[str] | None = None
+        # WiCAN profiles fetched from GitHub in async_step_vehicle.
         self._wican_profiles: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
@@ -497,11 +498,11 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         options.extend(
             SelectOptionDict(value=name, label=name) for name in builtin_names
         )
-        for car_model in sorted(self._wican_profiles):
-            # Skip if a built-in profile already has this name — built-ins win.
-            if car_model in builtin_names:
-                continue
-            options.append(SelectOptionDict(value=car_model, label=car_model))
+        options.extend(
+            SelectOptionDict(value=car_model, label=car_model)
+            for car_model in sorted(self._wican_profiles)
+            if car_model not in builtin_names
+        )
 
         return self.async_show_form(
             step_id="vehicle",
@@ -559,7 +560,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "shown; deselect any that aren't supported by your vehicle."
             )
 
-        # Preselect: defaults U profile-derived standards, intersected
+        # Preselect: defaults | profile-derived standards, intersected
         # with the candidate list so we never preselect a PID that
         # isn't even shown.
         preselect_set = set(RECOMMENDED_DEFAULTS) | set(
@@ -1040,8 +1041,7 @@ def _is_hex(s: str) -> bool:
         int(s, 16)
     except ValueError:
         return False
-    else:
-        return True
+    return True
 
 
 def _as_float(v: Any) -> float | None:

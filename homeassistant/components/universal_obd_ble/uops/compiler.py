@@ -271,6 +271,10 @@ def make_evaluator(source: str) -> Callable[[list[int]], float | None]:
 
     def evaluate(payload: list[int]) -> float | None:
         try:
+            # Safe: code was produced by compile_formula() which only
+            # accepts AST trees that passed _AstWhitelistVisitor — no
+            # Attribute, Name, Subscript, or calls outside B/S/BIT.
+            # __builtins__ is empty, so eval cannot reach any builtin.
             result = eval(code, {"__builtins__": {}}, _make_byte_helpers(payload))  # noqa: S307
         except ZeroDivisionError:
             return None

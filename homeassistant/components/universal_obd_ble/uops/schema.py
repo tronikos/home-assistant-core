@@ -44,12 +44,12 @@ class CustomPid:
     )
 
     def to_dict(self) -> dict[str, Any]:
-        """Return this PID as a serializable dictionary."""
+        """Serialize to a JSON-compatible dict for storage in HA config entries."""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CustomPid:
-        """Create a CustomPid instance from a dictionary."""
+        """Deserialize from a stored dict, ignoring unknown keys for forward-compat."""
         # Only take fields we know about — forward-compatible if extra
         # keys appear in stored JSON from a newer integration version.
         known = set(cls.__dataclass_fields__)
@@ -66,7 +66,7 @@ class UopsConfig:
     custom_pids: list[CustomPid] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the UopsConfig to a plain dictionary."""
+        """Serialize to a JSON-compatible dict for storage in HA config entries."""
         return {
             "standard_pids": list(self.standard_pids),
             "custom_pids": [p.to_dict() for p in self.custom_pids],
@@ -74,7 +74,7 @@ class UopsConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UopsConfig:
-        """Create a UopsConfig instance from a dictionary."""
+        """Deserialize from a stored dict."""
         return cls(
             standard_pids=list(data.get("standard_pids", [])),
             custom_pids=[CustomPid.from_dict(p) for p in data.get("custom_pids", [])],

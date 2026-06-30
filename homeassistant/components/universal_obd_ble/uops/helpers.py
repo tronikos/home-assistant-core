@@ -93,13 +93,18 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
             # A single token longer than 3 chars is a contiguous hex frame —
             # we need to split off the CAN header (3 or 8 chars) and then
             # chunk the rest into byte pairs.
+            #
+            # Header-length heuristic: 29-bit CAN (ISO 15765-4 / J1939)
+            # headers are 8 hex chars and start with "18" (e.g. "18DAF110").
+            # 11-bit CAN headers are 3 hex chars (e.g. "7E8"). Checking the
+            # "18" prefix is the standard way to distinguish them in
+            # spaces-off mode — checking "are the first 8 chars all hex"
+            # is wrong because ANY hex string of length >8 satisfies that,
+            # causing 11-bit frames like "7E805410C1AF8" to be mis-parsed
+            # as 29-bit.
             if len(parts) == 1 and len(line) > 3:
                 token = parts[0]
-                # Safely parse 29-bit CAN (8-char header) vs 11-bit CAN
-                # (3-char header) without blindly trusting "18" prefixes.
-                if len(token) > 8 and all(
-                    c in "0123456789ABCDEFabcdef" for c in token[:8]
-                ):
+                if len(token) > 8 and token[:2].upper() == "18":
                     header_len = 8
                 else:
                     header_len = 3

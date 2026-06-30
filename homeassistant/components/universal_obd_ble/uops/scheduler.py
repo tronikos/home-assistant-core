@@ -64,14 +64,14 @@ class QueryItem(Protocol):
 
     @property
     def context(self) -> CanContext:
-        """Return the CAN context for this query item."""
+        """Return the CAN context this item belongs to."""
 
     @property
     def key(self) -> str:
-        """Return the dict key where this item's result will be stored."""
+        """Return the dict key the coordinator stores the value under."""
 
     def execute(self, connection: Any) -> Any:
-        """Execute the query on the given ELM327 connection."""
+        """Execute the query and return the computed value, or None."""
 
 
 @dataclass
@@ -86,16 +86,16 @@ class StandardQueryItem:
     """
 
     command_name: str  # canonical obdii name, e.g. "ENGINE_SPEED"
-    command: object  # obdii.Command — built by the caller
+    command: Any  # obdii.Command — built by the caller
     context: CanContext = field(default_factory=CanContext)
 
     @property
     def key(self) -> str:
-        """Return the key for storing the standard query result."""
+        """Return the canonical obdii command name."""
         return self.command_name
 
     def execute(self, connection: Any) -> Any:
-        """Execute the standard query on the given connection."""
+        """Query the standard PID and return the resolver's typed value."""
         resp = connection.query(self.command)
         if resp is None:
             return None
@@ -125,17 +125,17 @@ class CustomQueryItem:
     """
 
     pid: CustomPid
-    command: object  # obdii.Command — built from pid.mode + pid.query
+    command: Any  # obdii.Command — built from pid.mode + pid.query
     evaluator: Callable[[list[int]], float | None]
     context: CanContext
 
     @property
     def key(self) -> str:
-        """Return the key for storing the custom query result."""
+        """Return the custom PID's display name."""
         return self.pid.name
 
     def execute(self, connection: Any) -> float | None:
-        """Execute the custom query on the given connection."""
+        """Query the custom PID, build the dirty array, evaluate the formula."""
         resp = connection.query(self.command)
         if resp is None:
             return None
