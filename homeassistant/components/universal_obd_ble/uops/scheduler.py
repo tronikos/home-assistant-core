@@ -33,6 +33,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from .helpers import extract_dirty_array
 from .schema import CustomPid
 
 
@@ -98,12 +99,30 @@ class StandardQueryItem:
         resp = connection.query(self.command)
         if resp is None:
             return None
+        # Skip BUFFER FULL responses — the ELM327's internal buffer
+        # overflowed (common with fast multi-PID polling). Returning
+        # None here marks the sensor unavailable for this cycle without
+        # crashing the whole polling loop.
+        raw = getattr(resp, "raw", None)
+        if raw and b"BUFFER FULL" in raw:
+            return None
         return resp.value
 
 
 @dataclass
 class CustomQueryItem:
-    """A custom PID query — uses the compiled formula evaluator."""
+    """A custom PID query — uses the compiled formula evaluator.
+
+    Uses `extract_dirty_array(resp.raw)` rather than `resp.unparsed`
+    because custom PID formulas (WiCAN, Torque, RealDash notation) are
+    authored against the ELM327's raw text output — the "dirty array"
+    that includes PCI bytes, mode echoes, and PID echoes at the byte
+    positions formula authors see in terminal output. py-obdii's
+    `unparsed` strips those bytes, which would make every existing
+    formula's byte indices wrong.
+
+    See `uops/helpers.py` for the full rationale.
+    """
 
     pid: CustomPid
     command: object  # obdii.Command — built from pid.mode + pid.query
@@ -120,13 +139,19 @@ class CustomQueryItem:
         resp = connection.query(self.command)
         if resp is None:
             return None
-        # obdii.Response.unparsed is the post-reassembly payload as
-        # list[int], with mode/PID bytes stripped. This is what the
-        # formula evaluator expects.
-        unparsed = getattr(resp, "unparsed", None)
-        if not unparsed:
+        raw = getattr(resp, "raw", None)
+        if not raw:
             return None
-        return self.evaluator(list(unparsed))
+        # Skip BUFFER FULL responses — the ELM327's internal buffer
+        # overflowed (common with fast multi-PID polling).
+        if b"BUFFER FULL" in raw:
+            return None
+        # Build the dirty array from the raw ELM327 text response.
+        # This is the data contract custom formulas are written against.
+        dirty_array = extract_dirty_array(raw)
+        if not dirty_array:
+            return None
+        return self.evaluator(dirty_array)
 
 
 def build_query_plan(

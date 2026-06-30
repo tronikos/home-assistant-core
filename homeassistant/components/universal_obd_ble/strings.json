@@ -49,7 +49,7 @@
   "options": {
     "error": {
       "invalid_formula": "The formula contains disallowed characters or syntax. Only digits, math operators (+ - * / // % ** & | ^ ~ << >>), parentheses, commas, and the functions B(n), B(n, m), S(n), S(n, m), BIT(b, n) are permitted.",
-      "invalid_hex": "Mode and query must be hexadecimal digits only (e.g. mode '22', query '028C1')."
+      "invalid_hex": "Mode, query, CAN header, and CAN filter must be hexadecimal digits only (e.g. mode '22', query '028C1', header '7E5', filter '7ED'). Leave header/filter blank if not needed."
     },
     "step": {
       "custom_pid_edit": {
@@ -57,6 +57,7 @@
           "can_filter": "CAN receive filter (ATCRA target, e.g. 7ED)",
           "can_header": "CAN header (ATSH target, e.g. 7E5)",
           "device_class": "Measurement type",
+          "expected_bytes": "Expected response bytes (ELM327 early-return optimization, 0 = disabled)",
           "formula": "Formula (e.g. B(0) / 2.55, B(5, 6) / 100, S(3) * 1.8 + 32, BIT(2, 0))",
           "init_extra": "Extra AT commands (semicolon-separated, e.g. ATST32)",
           "max_value": "Maximum value",

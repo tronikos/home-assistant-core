@@ -234,6 +234,21 @@ class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
             else:
                 self._attr_state_class = SensorStateClass.MEASUREMENT
 
+        # Expose min_value / max_value as extra state attributes so
+        # frontend gauge cards can use them for range visualization.
+        # NOTE: _attr_native_min_value / _attr_native_max_value are
+        # NumberEntity properties, NOT SensorEntity — setting them on
+        # a SensorEntity is a silent no-op (HA ignores unknown _attr_*
+        # assignments). Extra state attributes are the correct channel
+        # for exposing advisory metadata on a sensor.
+        extra_attrs: dict[str, float] = {}
+        if pid.min_value is not None:
+            extra_attrs["min_value"] = pid.min_value
+        if pid.max_value is not None:
+            extra_attrs["max_value"] = pid.max_value
+        if extra_attrs:
+            self._attr_extra_state_attributes = extra_attrs
+
     @property
     def native_value(self) -> StateType:
         """Return the float value computed by the compiled formula."""

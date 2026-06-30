@@ -893,6 +893,14 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
             if not _is_hex(query):
                 errors["query"] = "invalid_hex"
 
+            # Validate CAN header + filter are hex (if non-empty).
+            can_header = (user_input.get("can_header") or "").strip().upper()
+            can_filter = (user_input.get("can_filter") or "").strip().upper()
+            if can_header and not _is_hex(can_header):
+                errors["can_header"] = "invalid_hex"
+            if can_filter and not _is_hex(can_filter):
+                errors["can_filter"] = "invalid_hex"
+
             if not errors:
                 pid_id = existing.id if existing is not None else uuid.uuid4().hex
                 pid = CustomPid(
@@ -901,16 +909,15 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                     mode=mode,
                     query=query,
                     formula=formula,
-                    can_header=(user_input.get("can_header") or "").strip().upper()
-                    or None,
-                    can_filter=(user_input.get("can_filter") or "").strip().upper()
-                    or None,
+                    can_header=can_header or None,
+                    can_filter=can_filter or None,
                     init_extra=(user_input.get("init_extra") or "").strip() or None,
                     unit=(user_input.get("unit") or "").strip() or None,
                     device_class=user_input.get("device_class") or None,
                     state_class=user_input.get("state_class") or None,
                     min_value=_as_float(user_input.get("min_value")),
                     max_value=_as_float(user_input.get("max_value")),
+                    expected_bytes=int(user_input.get("expected_bytes") or 0),
                     source="manual",
                 )
                 if existing is not None:
@@ -992,6 +999,17 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional("max_value", default=defaults["max_value"]): vol.Any(
                         None, float
                     ),
+                    vol.Optional(
+                        "expected_bytes", default=defaults["expected_bytes"]
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0,
+                            max=64,
+                            step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                            unit_of_measurement="bytes",
+                        )
+                    ),
                     vol.Optional("remove", default=False): bool,
                 }
             ),
@@ -1050,6 +1068,7 @@ def _pid_to_form_defaults(pid: CustomPid) -> dict[str, Any]:
         "state_class": pid.state_class or "",
         "min_value": pid.min_value,
         "max_value": pid.max_value,
+        "expected_bytes": pid.expected_bytes or 0,
     }
 
 
@@ -1068,4 +1087,5 @@ def _empty_form_defaults() -> dict[str, Any]:
         "state_class": "",
         "min_value": None,
         "max_value": None,
+        "expected_bytes": 0,
     }

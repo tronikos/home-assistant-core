@@ -16,6 +16,7 @@ Public surface
                     compile_formula, make_evaluator
   scheduler:        CanContext, StandardQueryItem, CustomQueryItem,
                     QueryItem, build_query_plan, context_for_custom_pid
+  helpers:          extract_dirty_array, extract_voltage
   standard_pids:    RECOMMENDED_DEFAULTS, get_standard_command,
                     propose_icon, propose_device_class,
                     propose_state_class, get_list_of_units,
@@ -66,13 +67,14 @@ Typical call sites
                   res_data[item.key] = value
 """
 
-from . import compiler, importers, profiles, scheduler, schema, standard_pids
+from . import compiler, helpers, importers, profiles, scheduler, schema, standard_pids
 from .compiler import (
     FormulaValidationError,
     compile_formula,
     make_evaluator,
     validate_formula,
 )
+from .helpers import extract_dirty_array, extract_voltage
 from .importers import ProfileImporter, WicanImporter, import_wican_profile
 from .profiles import list_builtin_profiles, load_builtin_profile
 from .scheduler import (
@@ -109,8 +111,11 @@ __all__ = [
     "compile_formula",
     "compiler",
     "context_for_custom_pid",
+    "extract_dirty_array",
+    "extract_voltage",
     "get_list_of_units",
     "get_standard_command",
+    "helpers",
     "import_wican_profile",
     "importers",
     "list_builtin_profiles",

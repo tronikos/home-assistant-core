@@ -38,6 +38,7 @@ class CustomPid:
     state_class: str | None = None
     min_value: float | None = None
     max_value: float | None = None
+    expected_bytes: int = 0  # for ELM327 early-return optimization (0 = disabled)
     source: str = (
         "manual"  # provenance: "manual" | "import:wican:<car_model>" | "builtin"
     )

@@ -41,6 +41,7 @@ a syntax error. The slice is unambiguous from argument count:
 1 argument = single byte, 2 arguments = multi-byte slice.
 """
 
+import logging
 import re
 from typing import Any
 import uuid
@@ -48,6 +49,9 @@ import uuid
 from obdii import commands
 
 from ..schema import CustomPid, UopsConfig
+
+_LOGGER = logging.getLogger(__name__)
+
 
 # Matches `AT<cmd> <args>;` where cmd is letters only (SH, CRA, SP, ST, Z, ...)
 # and args is anything up to the next semicolon. Args may be empty (e.g. `ATZ;`).
@@ -82,45 +86,53 @@ def import_wican_profile(raw: dict[str, Any]) -> UopsConfig:
     profile_init = (raw.get("init") or "").strip()
 
     for block in raw.get("pids", []):
-        if not isinstance(block, dict):
-            continue
-        mode, query = _split_wican_command(block.get("pid", ""))
-        if not mode:
-            continue
-        header, can_filter, extra_init = _parse_pid_init(block.get("pid_init"))
-        if profile_init:
-            extra_init = _merge_init_strings(profile_init, extra_init)
-
-        # Reverse de-dup: Mode 01 PIDs with a known standard name get
-        # promoted to standard_pids and dropped from custom_pids.
-        # The match is on address (mode + query), not on formula —
-        # see _match_standard_pid docstring.
-        std_name = _match_standard_pid(mode, query)
-        if std_name:
-            standard.add(std_name)
-            continue
-
-        for param in _iter_parameters(block.get("parameters")):
-            formula = _translate_formula(param.get("expression", ""))
-            if not formula:
+        try:
+            if not isinstance(block, dict):
                 continue
-            custom.append(
-                CustomPid(
-                    id=uuid.uuid4().hex,
-                    name=param.get("name") or f"{mode}{query}",
-                    mode=mode,
-                    query=query,
-                    formula=formula,
-                    can_header=header,
-                    can_filter=can_filter,
-                    init_extra=extra_init,
-                    unit=param.get("unit"),
-                    device_class=param.get("class"),
-                    state_class=param.get("state_class"),
-                    min_value=_as_float(param.get("min")),
-                    max_value=_as_float(param.get("max")),
-                    source=f"import:wican:{car_model}",
+            mode, query = _split_wican_command(block.get("pid", ""))
+            if not mode:
+                continue
+            header, can_filter, extra_init = _parse_pid_init(block.get("pid_init"))
+            if profile_init:
+                extra_init = _merge_init_strings(profile_init, extra_init)
+
+            # Reverse de-dup: Mode 01 PIDs with a known standard name get
+            # promoted to standard_pids and dropped from custom_pids.
+            # The match is on address (mode + query), not on formula —
+            # see _match_standard_pid docstring.
+            std_name = _match_standard_pid(mode, query)
+            if std_name:
+                standard.add(std_name)
+                continue
+
+            for param in _iter_parameters(block.get("parameters")):
+                formula = _translate_formula(param.get("expression", ""))
+                if not formula:
+                    continue
+                custom.append(
+                    CustomPid(
+                        id=uuid.uuid4().hex,
+                        name=param.get("name") or f"{mode}{query}",
+                        mode=mode,
+                        query=query,
+                        formula=formula,
+                        can_header=header,
+                        can_filter=can_filter,
+                        init_extra=extra_init,
+                        unit=param.get("unit"),
+                        device_class=param.get("class"),
+                        state_class=param.get("state_class"),
+                        min_value=_as_float(param.get("min")),
+                        max_value=_as_float(param.get("max")),
+                        source=f"import:wican:{car_model}",
+                    )
                 )
+        except Exception as err:  # noqa: BLE001
+            # Per-PID error handling: one malformed block doesn't abort
+            # the entire import. Log and continue so the user gets the
+            # rest of the profile's PIDs.
+            _LOGGER.warning(
+                "Skipping malformed WiCAN PID block in profile %r: %s", car_model, err
             )
 
     return UopsConfig(

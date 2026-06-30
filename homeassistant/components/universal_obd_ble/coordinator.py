@@ -23,7 +23,6 @@ pre-refactor design — those concerns are orthogonal to the UOPS work.
 import contextlib
 from datetime import timedelta
 import logging
-import re
 import threading
 import time
 from typing import Any
@@ -71,20 +70,13 @@ from .uops import (
     UopsConfig,
     build_query_plan,
     context_for_custom_pid,
+    extract_voltage,
     get_standard_command,
     make_evaluator,
     scan_supported_pids,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# Matches a plausible vehicle battery voltage: 1-2 digits, decimal
-# point, 1-2 digits. e.g. "14.2V", "12.80V". Negative lookarounds
-# prevent matching longer numbers like "123.45".
-_VOLTAGE_RE = re.compile(r"(?<!\d)(\d{1,2}\.\d{1,2})(?!\d)")
-
-# ELM327 wire-level prompt terminator.
-_PROMPT = b">"
 
 
 class UniversalObdCoordinator(DataUpdateCoordinator):
@@ -147,7 +139,16 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
 
         for pid in uops.custom_pids:
             try:
-                command = Command(pid.mode, pid.query)
+                # Pass expected_bytes so py-obdii can use the ELM327
+                # early-return optimization (appends a return-digit to
+                # the query so the adapter returns as soon as it has
+                # the expected number of response lines, instead of
+                # waiting for the full timeout). 0 = disabled.
+                command = Command(
+                    pid.mode,
+                    pid.query,
+                    expected_bytes=pid.expected_bytes or 0,
+                )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
                     "Could not build obdii.Command for custom PID %s (mode=%s query=%s): %s",
@@ -473,16 +474,6 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
     # Voltage gate / battery guard
     # ------------------------------------------------------------------
 
-    def _extract_voltage(self, raw_text: str) -> float | None:
-        """Parse a voltage float from an AT RV raw response."""
-        match = _VOLTAGE_RE.search(raw_text)
-        if not match:
-            return None
-        try:
-            return float(match.group(1))
-        except ValueError:
-            return None
-
     def _handle_voltage_check(self, fast_interval: timedelta) -> tuple[str, timedelta]:
         """Query battery voltage and determine the polling state + interval.
 
@@ -501,11 +492,11 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Empty or invalid RV response received")
             return PollingState.CAR_ON, fast_interval
 
-        raw_text = rv_resp.raw.decode(errors="ignore")
-        voltage = self._extract_voltage(raw_text)
+        voltage = extract_voltage(rv_resp.raw)
         if voltage is None:
             _LOGGER.debug(
-                "Could not parse numeric voltage from RV response: %r", raw_text
+                "Could not parse numeric voltage from RV response: %r",
+                rv_resp.raw.decode(errors="ignore"),
             )
             return PollingState.CAR_ON, fast_interval
 
