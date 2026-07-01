@@ -6,7 +6,7 @@ import time so a typo fails loudly instead of silently at runtime.
 
 from typing import Final
 
-from obdii import Command, commands
+from obdii import Command, Connection, commands
 
 # Recommended defaults - preselected on the standard-PID multiselect.
 # Validated at import time so a typo in this list fails immediately,
@@ -155,7 +155,7 @@ def get_list_of_units(command: Command) -> list[str]:
     return list(command.units)
 
 
-def scan_supported_pids(connection) -> list[str]:
+def scan_supported_pids(connection: Connection) -> list[str]:
     """Walk Mode 01 PID 00/20/40/.../C0 bitmaps and return supported command names.
 
     `connection` is an obdii.Connection. The caller is responsible for

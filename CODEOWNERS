@@ -1975,6 +1975,7 @@ CLAUDE.md @home-assistant/core
 /homeassistant/components/unifiprotect/ @RaHehl
 /tests/components/unifiprotect/ @RaHehl
 /homeassistant/components/universal_obd_ble/ @tronikos
+/tests/components/universal_obd_ble/ @tronikos
 /homeassistant/components/upb/ @gwww
 /tests/components/upb/ @gwww
 /homeassistant/components/upc_connect/ @pvizeli @fabaff

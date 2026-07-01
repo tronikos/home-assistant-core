@@ -187,7 +187,7 @@ class _AstWhitelistVisitor(ast.NodeVisitor):
         if node.func.id == "BIT":
             if len(node.args) != 2:
                 raise FormulaValidationError("BIT(b, n) requires exactly 2 arguments")
-        elif not (1 <= len(node.args) <= 2):  # B or S
+        elif not (1 <= len(node.args) <= 2):
             raise FormulaValidationError(
                 f"{node.func.id}(n) or {node.func.id}(n, m) - 1 or 2 arguments required"
             )

@@ -42,8 +42,26 @@
     }
   },
   "exceptions": {
+    "adapter_not_connected_scan": {
+      "message": "Adapter disconnected during supported-PID scan"
+    },
+    "adapter_out_of_range": {
+      "message": "BLE adapter not in range - cannot scan supported PIDs"
+    },
+    "connect_failed_scan": {
+      "message": "Failed to connect for supported-PID scan"
+    },
+    "device_not_found": {
+      "message": "BLE device not found for address {address}"
+    },
+    "device_out_of_range": {
+      "message": "BLE device out of range"
+    },
     "missing_unique_id": {
       "message": "Device registration failed: Unique Bluetooth MAC address is missing."
+    },
+    "polling_failed": {
+      "message": "Polling cycle failed"
     }
   },
   "options": {

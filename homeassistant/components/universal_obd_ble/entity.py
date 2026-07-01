@@ -2,10 +2,10 @@
 
 import logging
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from . import UniversalObdConfigEntry
 from .const import DOMAIN
 from .coordinator import UniversalObdCoordinator
 
@@ -16,7 +16,9 @@ class UniversalObdEntity(CoordinatorEntity[UniversalObdCoordinator]):
     """Base entity that links to the shared Bluetooth device entry."""
 
     def __init__(
-        self, coordinator: UniversalObdCoordinator, config_entry: ConfigEntry
+        self,
+        coordinator: UniversalObdCoordinator,
+        config_entry: UniversalObdConfigEntry,
     ) -> None:
         """Initialize the base entity."""
         super().__init__(coordinator)

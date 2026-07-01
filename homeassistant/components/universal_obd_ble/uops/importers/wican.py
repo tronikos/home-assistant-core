@@ -165,7 +165,7 @@ class WicanImporter:
 # ---------------------------------------------------------------------------
 
 
-def _split_wican_command(raw: str) -> tuple[str, str]:
+def _split_wican_command(raw: Any) -> tuple[str, str]:
     """Split a WiCAN `pid` field like '22028C1' into ('22', '028C1').
 
     The first 2 chars are the mode (hex byte as text); the rest is the
@@ -277,7 +277,7 @@ def _match_standard_pid(mode: str, query: str) -> str | None:
     return cmd.name
 
 
-def _translate_formula(expr: str) -> str:
+def _translate_formula(expr: Any) -> str:
     """Translate WiCAN/Torque notation to canonical UOPS notation.
 
     See module docstring for the translation table. Order matters:

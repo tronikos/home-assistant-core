@@ -1,30 +1,34 @@
 """Diagnostic binary sensors for Universal OBD BLE."""
 
+from collections.abc import Callable
 import logging
+from typing import Final
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import UniversalObdConfigEntry
 from .coordinator import UniversalObdCoordinator
 from .entity import UniversalObdEntity
+
+PARALLEL_UPDATES: Final[int] = 0
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: UniversalObdConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the binary sensor platform."""
-    coordinator: UniversalObdCoordinator = entry.runtime_data
+    coordinator = entry.runtime_data
 
     entities = [
         UniversalObdBleBinarySensor(
@@ -60,9 +64,9 @@ class UniversalObdBleBinarySensor(UniversalObdEntity, BinarySensorEntity):
     def __init__(
         self,
         coordinator: UniversalObdCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: UniversalObdConfigEntry,
         description: BinarySensorEntityDescription,
-        is_on_fn,
+        is_on_fn: Callable[[], bool],
     ) -> None:
         """Initialize the binary sensor."""
         super().__init__(coordinator, config_entry)

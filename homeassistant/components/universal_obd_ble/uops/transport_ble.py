@@ -7,6 +7,7 @@ import contextlib
 import logging
 from threading import Event, Lock
 from time import monotonic
+from types import TracebackType
 from typing import Any, Self
 
 from bleak import BleakClient
@@ -29,7 +30,7 @@ class TransportBLE(TransportBase):
         uuid_read: str = MISSING,
         timeout: float = 10.0,
         loop: asyncio.AbstractEventLoop | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Initialize the BLE transport."""
         if ble_device is MISSING or uuid_write is MISSING or uuid_read is MISSING:
@@ -66,7 +67,7 @@ class TransportBLE(TransportBase):
             future.cancel()
             raise TimeoutError("BLE operation timed out") from exc
 
-    def _notify_callback(self, _, data: bytearray) -> None:
+    def _notify_callback(self, _sender: Any, data: bytearray) -> None:
         """Handle incoming notify notifications from BLE device."""
         with self._lock:
             self._buffer.extend(data)
@@ -168,7 +169,9 @@ class TransportBLE(TransportBase):
             raise RuntimeError("BLE connection is not established.")
         return self._ble_conn.services
 
-    def connect(self, loop: asyncio.AbstractEventLoop | None = None, **kwargs) -> None:
+    def connect(
+        self, loop: asyncio.AbstractEventLoop | None = None, **kwargs: Any
+    ) -> None:
         """Connect to BLE device blocking-wise."""
         self.config.update(kwargs)
 
@@ -252,7 +255,12 @@ class TransportBLE(TransportBase):
         self.connect()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Exit context manager block."""
         self.close()
 
@@ -261,6 +269,11 @@ class TransportBLE(TransportBase):
         await self.async_connect()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Exit async context manager block."""
         await self.async_close()

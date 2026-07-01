@@ -18,60 +18,55 @@ Public surface
                     scan_supported_pids
   importers:        ProfileImporter, WicanImporter, import_wican_profile
   profiles:         list_builtin_profiles, load_builtin_profile
-
-Typical call sites
-------------------
-
-  Config flow (validate only, no bytecode):
-      from .uops import validate_formula
-      try:
-          validate_formula(user_input["formula"])
-      except FormulaValidationError as exc:
-          errors["formula"] = "invalid_formula"
-
-  Coordinator startup (compile + build plan):
-      from .uops import (
-          UopsConfig, make_evaluator, context_for_custom_pid,
-          CustomQueryItem, StandardQueryItem, build_query_plan,
-          get_standard_command,
-      )
-      uops = UopsConfig.from_dict(entry.options["uops"])
-      items: list[QueryItem] = []
-      for name in uops.standard_pids:
-          cmd = get_standard_command(name)
-          if cmd is not None:
-              items.append(StandardQueryItem(command_name=name, command=cmd))
-      for pid in uops.custom_pids:
-          cmd = Command(pid.mode, pid.query)
-          items.append(CustomQueryItem(
-              pid=pid,
-              command=cmd,
-              evaluator=make_evaluator(pid.formula),
-              context=context_for_custom_pid(pid),
-          ))
-      self._query_plan = build_query_plan(items)
-
-  Per-poll execution:
-      for context, group in self._query_plan:
-          if context != self._current_context:
-              self._apply_can_context(context)
-              self._current_context = context
-          for item in group:
-              value = item.execute(self.api)
-              if value is not None:
-                  res_data[item.key] = value
+  connection:       ConnectionTestResult, test_connection,
+                    async_get_characteristics
+  polling:          PollingState, build_query_plan_from_uops,
+                    create_connection, apply_can_context,
+                    run_query_plan, check_voltage
+  profiles_fetch:   WICAN_PROFILES_URL, fetch_wican_profiles
+  validation:       is_hex, as_float, all_known_standard_pid_names,
+                    standard_pid_options, pid_to_form_defaults,
+                    empty_form_defaults, format_sensor_value
+  transport_ble:    TransportBLE
 """
 
-from . import compiler, helpers, importers, profiles, scheduler, schema, standard_pids
+from . import (
+    compiler,
+    connection,
+    helpers,
+    importers,
+    polling,
+    profiles,
+    profiles_fetch,
+    scheduler,
+    schema,
+    standard_pids,
+    transport_ble,
+    validation,
+)
 from .compiler import (
     FormulaValidationError,
     compile_formula,
     make_evaluator,
     validate_formula,
 )
+from .connection import (
+    ConnectionTestResult,
+    async_get_characteristics,
+    probe_connection,
+)
 from .helpers import extract_dirty_array, extract_voltage
 from .importers import ProfileImporter, WicanImporter, import_wican_profile
+from .polling import (
+    PollingState,
+    apply_can_context,
+    build_query_plan_from_uops,
+    check_voltage,
+    create_connection,
+    run_query_plan,
+)
 from .profiles import list_builtin_profiles, load_builtin_profile
+from .profiles_fetch import WICAN_PROFILES_URL, fetch_wican_profiles
 from .scheduler import (
     CanContext,
     CustomQueryItem,
@@ -90,39 +85,73 @@ from .standard_pids import (
     propose_state_class,
     scan_supported_pids,
 )
+from .transport_ble import TransportBLE
+from .validation import (
+    all_known_standard_pid_names,
+    as_float,
+    empty_form_defaults,
+    format_sensor_value,
+    is_hex,
+    pid_to_form_defaults,
+    standard_pid_options,
+)
 
 __all__ = [
     "RECOMMENDED_DEFAULTS",
+    "WICAN_PROFILES_URL",
     "CanContext",
+    "ConnectionTestResult",
     "CustomPid",
     "CustomQueryItem",
     "FormulaValidationError",
+    "PollingState",
     "ProfileImporter",
     "QueryItem",
     "StandardQueryItem",
+    "TransportBLE",
     "UopsConfig",
     "WicanImporter",
+    "all_known_standard_pid_names",
+    "apply_can_context",
+    "as_float",
+    "async_get_characteristics",
     "build_query_plan",
+    "build_query_plan_from_uops",
+    "check_voltage",
     "compile_formula",
     "compiler",
+    "connection",
     "context_for_custom_pid",
+    "create_connection",
+    "empty_form_defaults",
     "extract_dirty_array",
     "extract_voltage",
+    "fetch_wican_profiles",
+    "format_sensor_value",
     "get_list_of_units",
     "get_standard_command",
     "helpers",
     "import_wican_profile",
     "importers",
+    "is_hex",
     "list_builtin_profiles",
     "load_builtin_profile",
     "make_evaluator",
+    "pid_to_form_defaults",
+    "polling",
+    "probe_connection",
     "profiles",
+    "profiles_fetch",
     "propose_device_class",
     "propose_icon",
     "propose_state_class",
+    "run_query_plan",
     "scan_supported_pids",
     "scheduler",
     "schema",
+    "standard_pid_options",
     "standard_pids",
+    "transport_ble",
     "validate_formula",
+    "validation",
 ]

@@ -623,6 +623,7 @@ homeassistant.components.twentemilieu.*
 homeassistant.components.unifi.*
 homeassistant.components.unifi_access.*
 homeassistant.components.unifiprotect.*
+homeassistant.components.universal_obd_ble.*
 homeassistant.components.upcloud.*
 homeassistant.components.update.*
 homeassistant.components.uptime.*

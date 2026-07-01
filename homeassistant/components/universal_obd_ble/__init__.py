@@ -16,8 +16,12 @@ from .coordinator import UniversalObdCoordinator
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
+type UniversalObdConfigEntry = ConfigEntry[UniversalObdCoordinator]
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: UniversalObdConfigEntry
+) -> bool:
     """Set up this integration from a config entry."""
     if not entry.unique_id:
         raise ConfigEntryError(
@@ -61,7 +65,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     )
 
-    async def update_options_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    async def update_options_listener(
+        hass: HomeAssistant, entry: UniversalObdConfigEntry
+    ) -> None:
         """Reload the config entry when options change.
 
         A full reload creates a fresh coordinator, which rebuilds its
@@ -74,11 +80,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(
+    hass: HomeAssistant, entry: UniversalObdConfigEntry
+) -> bool:
     """Handle removal of a config entry."""
     unloaded: Final = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        coordinator: UniversalObdCoordinator = entry.runtime_data
+        coordinator = entry.runtime_data
         # Disconnect from the executor pool - the BLE transport's
         # close() runs synchronous I/O that can't happen on the loop.
         await hass.async_add_executor_job(coordinator.disconnect)

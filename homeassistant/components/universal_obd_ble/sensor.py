@@ -1,26 +1,27 @@
 """Sensor platform for Universal OBD BLE."""
 
 import logging
-from typing import Any
+from typing import Any, Final
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import slugify
 
+from . import UniversalObdConfigEntry
 from .const import CONF_UOPS
 from .coordinator import UniversalObdCoordinator
 from .entity import UniversalObdEntity
 from .uops import (
     CustomPid,
     UopsConfig,
+    format_sensor_value,
     get_list_of_units,
     get_standard_command,
     propose_device_class,
@@ -28,10 +29,10 @@ from .uops import (
     propose_state_class,
 )
 
+PARALLEL_UPDATES: Final[int] = 0
+
 _LOGGER = logging.getLogger(__name__)
 
-# Maps the string names returned by uops.propose_device_class (and the
-# device_class field on CustomPid) to HA's SensorDeviceClass enum.
 _DEVICE_CLASS_MAP: dict[str, SensorDeviceClass] = {
     "battery": SensorDeviceClass.BATTERY,
     "voltage": SensorDeviceClass.VOLTAGE,
@@ -47,8 +48,6 @@ _DEVICE_CLASS_MAP: dict[str, SensorDeviceClass] = {
     "power_factor": SensorDeviceClass.POWER_FACTOR,
 }
 
-# Maps the string names returned by uops.propose_state_class to HA's
-# SensorStateClass enum.
 _STATE_CLASS_MAP: dict[str, SensorStateClass] = {
     "measurement": SensorStateClass.MEASUREMENT,
     "total_increasing": SensorStateClass.TOTAL_INCREASING,
@@ -57,15 +56,14 @@ _STATE_CLASS_MAP: dict[str, SensorStateClass] = {
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: UniversalObdConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Instantiate sensors from UOPS and clean up orphans."""
-    coordinator: UniversalObdCoordinator = entry.runtime_data
+    coordinator = entry.runtime_data
 
     uops = UopsConfig.from_dict(entry.options.get(CONF_UOPS, {}))
 
-    # Build the set of active unique-id suffixes for orphan cleanup.
     active_standard_keys = {slugify(name) for name in uops.standard_pids}
     active_custom_ids = {pid.id for pid in uops.custom_pids}
 
@@ -111,17 +109,12 @@ async def async_setup_entry(
 
 
 class UniversalObdStandardSensor(UniversalObdEntity, SensorEntity):
-    """Sensor for a standard Mode 01 PID.
-
-    Icon, device_class, state_class, and unit are proposed by
-    uops/standard_pids.py heuristics from the obdii Command object.
-    Users override any of these via HA's native entity settings panel.
-    """
+    """Sensor for a standard Mode 01 PID."""
 
     def __init__(
         self,
         coordinator: UniversalObdCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: UniversalObdConfigEntry,
         command_name: str,
         command: Any,
     ) -> None:
@@ -146,33 +139,26 @@ class UniversalObdStandardSensor(UniversalObdEntity, SensorEntity):
     @property
     def native_value(self) -> StateType:
         """Return the coordinator's stored value, formatting lists for display."""
-        if self.coordinator.data is None:
+        data: dict[str, Any] | None = self.coordinator.data
+        if data is None:
             return None
-        value = self.coordinator.data.get(self._command_name)
-        return _format_value(value)
+        value = data.get(self._command_name)
+        return format_sensor_value(value)
 
 
 class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
-    """Sensor for a custom PID.
-
-    Unit, device_class, state_class, icon, min, max all come from the
-    CustomPid dataclass in the UOPS - set by the user in the options
-    flow's Master-Detail custom PID editor. The coordinator stores a
-    float (or None) per custom PID.
-    """
+    """Sensor for a custom PID."""
 
     def __init__(
         self,
         coordinator: UniversalObdCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: UniversalObdConfigEntry,
         pid: CustomPid,
     ) -> None:
         """Initialize the custom sensor."""
         super().__init__(coordinator, config_entry)
         self._pid = pid
         self._attr_name = pid.name
-        # Stable id keyed on pid.id - renaming the display name does
-        # NOT orphan the entity. Only deleting the PID does.
         self._attr_unique_id = f"{config_entry.unique_id}-custom-{pid.id}"
 
         unit = pid.unit
@@ -181,8 +167,6 @@ class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
         )
 
         dc_name = pid.device_class
-        # Special case: a "battery" device_class with a voltage unit
-        # must be exposed as VOLTAGE or HA validation rejects it.
         if dc_name == "battery" and self._attr_native_unit_of_measurement in (
             "V",
             "v",
@@ -198,17 +182,12 @@ class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
         sc_name = pid.state_class
         self._attr_state_class = _STATE_CLASS_MAP.get(sc_name) if sc_name else None
         if self._attr_state_class is None:
-            # Default: counters/odometers are total_increasing; everything else measurement.
             name_upper = pid.name.upper()
             if "ODOMETER" in name_upper or unit in ("km", "mi"):
                 self._attr_state_class = SensorStateClass.TOTAL_INCREASING
             else:
                 self._attr_state_class = SensorStateClass.MEASUREMENT
 
-        # Expose min_value / max_value as extra state attributes so
-        # frontend gauge cards can use them for range visualization.
-        # (_attr_native_min_value / _attr_native_max_value are
-        # NumberEntity properties, not SensorEntity.)
         extra_attrs: dict[str, float] = {}
         if pid.min_value is not None:
             extra_attrs["min_value"] = pid.min_value
@@ -220,36 +199,13 @@ class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
     @property
     def native_value(self) -> StateType:
         """Return the float value computed by the compiled formula."""
-        if self.coordinator.data is None:
+        data: dict[str, Any] | None = self.coordinator.data
+        if data is None:
             return None
-        value = self.coordinator.data.get(self._pid.name)
+        value = data.get(self._pid.name)
         if value is None:
             return None
         try:
             return float(value)
         except TypeError, ValueError:
             return None
-
-
-def _format_value(value: Any) -> StateType:
-    """Format a standard-PID resolver value for HA state display.
-
-    obdii resolvers return:
-      - float / int  for most PIDs (RPM, speed, temp, ...)
-      - list[int]    for supported-PID bitmaps
-      - list[tuple]  for O2 sensor voltage+trim pairs, fuel system status
-      - str          for DTCs, VIN
-      - None         when the query failed
-
-    Lists are joined into comma-separated strings; everything else
-    is returned as-is (HA will str() it for state).
-    """
-    if value is None:
-        return None
-    if isinstance(value, list | tuple):
-        if all(isinstance(x, tuple) and len(x) > 0 for x in value):
-            return ", ".join(str(x[0]) for x in value)
-        return ", ".join(str(item) for item in value)
-    if isinstance(value, (int, float, str)):
-        return value
-    return str(value)
