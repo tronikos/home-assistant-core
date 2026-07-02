@@ -85,7 +85,7 @@ from .standard_pids import (
     propose_state_class,
     scan_supported_pids,
 )
-from .transport_ble import TransportBLE
+from .transport_ble import TransportBLE, TransportError
 from .validation import (
     all_known_standard_pid_names,
     as_float,
@@ -94,6 +94,7 @@ from .validation import (
     is_hex,
     pid_to_form_defaults,
     standard_pid_options,
+    user_input_to_form_defaults,
 )
 
 __all__ = [
@@ -109,6 +110,7 @@ __all__ = [
     "QueryItem",
     "StandardQueryItem",
     "TransportBLE",
+    "TransportError",
     "UopsConfig",
     "WicanImporter",
     "all_known_standard_pid_names",
@@ -152,6 +154,7 @@ __all__ = [
     "standard_pid_options",
     "standard_pids",
     "transport_ble",
+    "user_input_to_form_defaults",
     "validate_formula",
     "validation",
 ]

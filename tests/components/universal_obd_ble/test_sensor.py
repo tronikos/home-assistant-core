@@ -1,8 +1,6 @@
 """Tests for the Universal OBD BLE sensor platform."""
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.components.universal_obd_ble.sensor import (
@@ -14,8 +12,6 @@ from homeassistant.components.universal_obd_ble.uops import (
     format_sensor_value,
 )
 from homeassistant.core import HomeAssistant
-
-pytestmark = pytest.mark.asyncio
 
 
 def test_format_sensor_value_none() -> None:
@@ -65,18 +61,14 @@ def test_standard_sensor_initialization(
     command.pid = "0C"
     command.units = "rpm"
 
-    with patch(
-        "homeassistant.components.universal_obd_ble.sensor.propose_icon",
-        return_value="mdi:engine",
-    ):
-        sensor = UniversalObdStandardSensor(
-            coordinator, mock_config_entry, "ENGINE_SPEED", command
-        )
+    sensor = UniversalObdStandardSensor(
+        coordinator, mock_config_entry, "ENGINE_SPEED", command
+    )
 
     assert sensor._command_name == "ENGINE_SPEED"
     assert "Engine speed" in sensor._attr_name
     assert sensor._attr_unique_id == f"{mock_config_entry.unique_id}-std-engine_speed"
-    assert sensor._attr_icon == "mdi:engine"
+    assert sensor._attr_device_class == SensorDeviceClass.SPEED
     assert sensor._attr_native_unit_of_measurement == "rpm"
 
 

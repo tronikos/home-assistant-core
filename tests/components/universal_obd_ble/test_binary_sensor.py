@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntityDescription,
@@ -12,8 +10,6 @@ from homeassistant.components.universal_obd_ble.binary_sensor import (
     UniversalObdBleBinarySensor,
 )
 from homeassistant.const import EntityCategory
-
-pytestmark = pytest.mark.asyncio
 
 
 def test_binary_sensor_ble_connected() -> None:

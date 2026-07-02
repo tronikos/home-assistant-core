@@ -95,13 +95,14 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
             # headers are 8 hex chars and start with "18" (e.g. "18DAF110").
             # 11-bit CAN headers are 3 hex chars (e.g. "7E8"). Checking the
             # "18" prefix is the standard way to distinguish them in
-            # spaces-off mode - checking "are the first 8 chars all hex"
-            # is wrong because ANY hex string of length >8 satisfies that,
-            # causing 11-bit frames like "7E805410C1AF8" to be mis-parsed
-            # as 29-bit.
+            # spaces-off mode.
+            #
+            # Note: using >= 8 instead of > 8 so header-only frames (exactly
+            # 8 chars, no payload) are still recognized as 29-bit and dropped
+            # (no payload bytes to parse) rather than mis-parsed as 11-bit.
             if len(parts) == 1 and len(line) > 3:
                 token = parts[0]
-                if len(token) > 8 and token[:2].upper() == "18":
+                if len(token) >= 8 and token[:2].upper() == "18":
                     header_len = 8
                 else:
                     header_len = 3
@@ -133,11 +134,11 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
 def extract_voltage(raw_response: bytes) -> float | None:
     """Parse a voltage float from an AT RV raw response.
 
-    Matches 1-2 digits, decimal point, 1-2 digits (e.g. "14.2V", "12.80V").
+    Matches 1-2 digits, decimal point, 1-3 digits (e.g. "14.2V", "12.80V", "14.234V").
     Negative lookarounds prevent matching longer numbers like "123.45".
     """
     raw_text = raw_response.decode("utf-8", errors="ignore")
-    match = research(r"(?<!\d)(\d{1,2}\.\d{1,2})(?!\d)", raw_text, IGNORECASE)
+    match = research(r"(?<!\d)(\d{1,2}\.\d{1,3})(?!\d)", raw_text, IGNORECASE)
     if not match:
         return None
     try:

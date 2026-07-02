@@ -44,7 +44,6 @@ a syntax error. The slice is unambiguous from argument count:
 import logging
 import re
 from typing import Any
-import uuid
 
 from obdii import commands
 
@@ -109,10 +108,12 @@ def import_wican_profile(raw: dict[str, Any]) -> UopsConfig:
                 formula = _translate_formula(param.get("expression", ""))
                 if not formula:
                     continue
+                pid_name = param.get("name") or f"{mode}{query}"
+                pid_id = f"{mode}:{query}:{pid_name}"
                 custom.append(
                     CustomPid(
-                        id=uuid.uuid4().hex,
-                        name=param.get("name") or f"{mode}{query}",
+                        id=pid_id,
+                        name=pid_name,
                         mode=mode,
                         query=query,
                         formula=formula,

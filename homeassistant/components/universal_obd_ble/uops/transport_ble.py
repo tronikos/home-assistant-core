@@ -13,11 +13,21 @@ from typing import Any, Self
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
 from bleak.backends.service import BleakGATTServiceCollection
+from bleak.exc import BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from obdii.basetypes import MISSING
 from obdii.transports.transport_base import TransportBase
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
+
+
+class TransportError(RuntimeError):
+    """Raised by TransportBLE for connection/state failures.
+
+    Subclasses RuntimeError for backward compatibility, but callers
+    should catch TransportError specifically to avoid swallowing
+    unrelated RuntimeErrors from the obdii library or Python.
+    """
 
 
 class TransportBLE(TransportBase):
@@ -59,7 +69,7 @@ class TransportBLE(TransportBase):
     def _run_coro(self, coro: Coroutine) -> Any:
         """Run a coroutine thread-safely in the specified loop."""
         if self._loop is None:
-            raise RuntimeError("Event loop is not running.")
+            raise TransportError("Event loop is not running.")
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         try:
             return future.result(timeout=self.config["timeout"])
@@ -111,9 +121,18 @@ class TransportBLE(TransportBase):
                 "Configured characteristics not found - attempting dynamic discovery"
             )
             for service in services:
-                # Skip standard BLE SIG services (0x1800-0x18xx) to avoid
-                # accidentally claiming Generic Access or Device Information chars.
-                if service.uuid.lower().startswith("000018"):
+                # Skip standard BLE SIG services known to cause false-positive
+                # matches during fallback discovery: Generic Access (0x1800),
+                # Generic Attribute (0x1801), Device Information (0x180A),
+                # Battery Service (0x180F). Do NOT skip 0x18F0 - that's a
+                # common OBD-II adapter service UUID.
+                service_uuid = service.uuid.lower()
+                if service_uuid in (
+                    "00001800-0000-1000-8000-00805f9b34fb",  # Generic Access
+                    "00001801-0000-1000-8000-00805f9b34fb",  # Generic Attribute
+                    "0000180a-0000-1000-8000-00805f9b34fb",  # Device Information
+                    "0000180f-0000-1000-8000-00805f9b34fb",  # Battery Service
+                ):
                     continue
                 for char in service.characteristics:
                     props = char.properties
@@ -131,7 +150,7 @@ class TransportBLE(TransportBase):
                         )
 
         if not write_char or not read_char:
-            raise RuntimeError(
+            raise TransportError(
                 "Could not locate compatible Read/Write GATT characteristics. "
                 "Verify the adapter UUIDs or try a different BLE serial profile."
             )
@@ -149,7 +168,7 @@ class TransportBLE(TransportBase):
         if self._ble_conn:
             try:
                 if self._ble_conn.is_connected:
-                    with contextlib.suppress(Exception):
+                    with contextlib.suppress(BleakError, OSError, TransportError):
                         await self._ble_conn.stop_notify(self.config["uuid_read"])
                     await self._ble_conn.disconnect()
             finally:
@@ -160,13 +179,13 @@ class TransportBLE(TransportBase):
     async def _write(self, query: bytes) -> None:
         """Write query bytes to GATT character representation."""
         if self._ble_conn is None:
-            raise RuntimeError("BLE connection is not established.")
+            raise TransportError("BLE connection is not established.")
         await self._ble_conn.write_gatt_char(self.config["uuid_write"], query)
 
     def get_service_collection(self) -> BleakGATTServiceCollection:
         """Return discovered GATT service collection."""
         if self._ble_conn is None:
-            raise RuntimeError("BLE connection is not established.")
+            raise TransportError("BLE connection is not established.")
         return self._ble_conn.services
 
     def connect(
@@ -186,8 +205,8 @@ class TransportBLE(TransportBase):
 
     def close(self) -> None:
         """Disconnect from BLE transport."""
-        if self.is_connected():
-            with contextlib.suppress(Exception):
+        if self._ble_conn is not None:
+            with contextlib.suppress(BleakError, OSError, TransportError):
                 self._run_coro(self.async_close())
         # Wake up any reader threads currently blocked in read_bytes.
         self._data_ready.set()
@@ -201,7 +220,7 @@ class TransportBLE(TransportBase):
     def write_bytes(self, query: bytes) -> None:
         """Write raw bytes to target write characteristic."""
         if not self.is_connected():
-            raise RuntimeError("BLE is not connected.")
+            raise TransportError("BLE is not connected.")
         with self._lock:
             self._buffer.clear()
         self._data_ready.clear()
@@ -220,7 +239,7 @@ class TransportBLE(TransportBase):
 
         while True:
             if not self.is_connected():
-                raise RuntimeError("BLE connection lost while reading.")
+                raise TransportError("BLE connection lost while reading.")
 
             remaining = deadline - monotonic()
             if remaining <= 0:

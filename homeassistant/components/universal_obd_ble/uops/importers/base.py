@@ -24,7 +24,7 @@ class ProfileImporter(Protocol):
         a concrete implementation.
 
       - **Formula translation**: the upstream notation (e.g. WiCAN's
-        `[B5:B6]`) is converted to canonical UOPS notation (`B(5:6)`).
+        `[B5:B6]`) is converted to canonical UOPS notation (`B(5, 6)`).
 
       - **Header/init extraction**: the upstream's init-strings are
         parsed into the structured `can_header` / `can_filter` /

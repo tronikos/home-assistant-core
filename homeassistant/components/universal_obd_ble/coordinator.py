@@ -5,9 +5,10 @@ from datetime import timedelta
 import logging
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from bleak.backends.device import BLEDevice
+from bleak.exc import BleakError
 from obdii import Connection
 
 from homeassistant.components.bluetooth import (
@@ -18,7 +19,6 @@ from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from . import UniversalObdConfigEntry
 from .const import (
     CONF_ATRV_SUPPORTED,
     CONF_FAST_POLL,
@@ -52,6 +52,10 @@ from .uops import (
     run_query_plan,
     scan_supported_pids,
 )
+from .uops.transport_ble import TransportError
+
+if TYPE_CHECKING:
+    from . import UniversalObdConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,9 +74,19 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         self.grace_start: float | None = None
         self.api: Connection | None = None
         self._current_context: CanContext | None = None
+        # Lock-free flag for ble_connected — read on the event loop without
+        # acquiring self._lock. Updated only from the executor thread (inside
+        # _sync_update) and disconnect (also via executor). Staleness can extend
+        # up to slow_poll (300s) when the adapter goes out of range.
+        self._ble_connected = False
         self.consecutive_failures = 0
         self.last_successful_poll: float | None = None
-        self.last_discovery_attempt: float = 0.0
+        # Two separate debounce timestamps — one for poll-cycle connection
+        # attempts, one for BLE re-discovery callback. Sharing a single
+        # timestamp caused normal polls to suppress the rapid-refresh-on-arrival
+        # logic (and vice versa).
+        self.last_poll_attempt: float = 0.0
+        self.last_rediscovery_attempt: float = 0.0
         self._offline_since: float | None = None
 
         uops = UopsConfig.from_dict(self.entry.options.get(CONF_UOPS, {}))
@@ -82,28 +96,35 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
 
     @property
     def ble_connected(self) -> bool:
-        """True if the BLE link to the adapter is up."""
-        with self._lock:
-            return self.api.is_connected() if self.api else False
+        """True if the BLE link to the adapter is up.
+
+        Reads a lock-free flag so the event loop isn't blocked by the
+        executor thread's polling cycle lock.
+        """
+        return self._ble_connected
 
     @property
     def car_connected(self) -> bool:
-        """True if the vehicle responded recently."""
-        if not self.ble_connected or self.last_successful_poll is None:
-            return False
-        fast_poll: int = self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
-        return bool(
-            (time.monotonic() - self.last_successful_poll) < (fast_poll * 2.5 + 5)
+        """True if the vehicle is in CAR_ON or GRACE_PERIOD state.
+
+        GRACE_PERIOD counts as connected because the vehicle's ECU may
+        still respond to queries during the brief voltage dip that
+        triggers the grace window (e.g. during engine crank).
+        """
+        return self._ble_connected and self.state in (
+            PollingState.CAR_ON,
+            PollingState.GRACE_PERIOD,
         )
 
     def disconnect(self) -> None:
         """Safely close the connection from an executor pool thread."""
         with self._lock:
             if self.api:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(BleakError, OSError, TransportError):
                     self.api.close()
                 self.api = None
                 self._current_context = None
+            self._ble_connected = False
 
     async def async_scan_supported_standard_pids(self) -> list[str]:
         """Live-scan the ECU for supported Mode 01 PIDs."""
@@ -211,14 +232,21 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
 
                 self.consecutive_failures = 0
 
-            except Exception as e:  # noqa: BLE001
+            except (
+                BleakError,
+                TimeoutError,
+                OSError,
+                ConnectionError,
+                TransportError,
+            ) as e:
                 _LOGGER.warning(
                     "Error during polling cycle, resetting connection: %s", e
                 )
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(BleakError, OSError, TransportError):
                     self.api.close()
                 self.api = None
                 self._current_context = None
+                self._ble_connected = False
                 self.consecutive_failures += 1
                 return {"failed": True, "error": str(e)}
 
@@ -231,7 +259,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
 
     def _handle_voltage_check(
         self, fast_interval: timedelta
-    ) -> tuple[str, timedelta, float | None]:
+    ) -> tuple[PollingState, timedelta, float | None]:
         """Query battery voltage and determine the polling state + interval."""
         assert self.api is not None
         state, interval, grace = check_voltage(
@@ -260,13 +288,14 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         if self.api and self.api.is_connected():
             return True
 
-        self.last_discovery_attempt = time.monotonic()
+        self.last_poll_attempt = time.monotonic()
 
         if self.api:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(BleakError, OSError, TransportError):
                 self.api.close()
             self.api = None
             self._current_context = None
+            self._ble_connected = False
 
         uuid_write = self.entry.options.get(
             CONF_UUID_WRITE,
@@ -280,4 +309,5 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         if self.api is None:
             return False
         self._current_context = None
+        self._ble_connected = True
         return True

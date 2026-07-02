@@ -6,7 +6,7 @@ Pure-async helper; takes an aiohttp ClientSession (HA-agnostic).
 import logging
 from typing import Any
 
-from aiohttp import ClientSession, ClientTimeout
+from aiohttp import ClientError, ClientSession, ClientTimeout
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +36,6 @@ async def fetch_wican_profiles(session: ClientSession) -> dict[str, dict[str, An
             _LOGGER.warning("WiCAN profile JSON has unexpected shape")
             return {}
         return {car["car_model"]: car for car in data["cars"] if "car_model" in car}
-    except Exception as err:  # noqa: BLE001
+    except (ClientError, TimeoutError, ValueError) as err:
         _LOGGER.warning("Could not download WiCAN profiles: %s", err)
         return {}

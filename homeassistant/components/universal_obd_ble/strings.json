@@ -18,6 +18,13 @@
         "description": "Auto-discovery failed or no connection could be established. Select the correct Bluetooth read (RX) and write (TX) characteristics discovered on your adapter.",
         "title": "Configure Connection Characteristics"
       },
+      "custom_pids_select": {
+        "data": {
+          "custom_pids": "Custom PIDs from the selected profile"
+        },
+        "description": "Select which custom (proprietary) PIDs from the vehicle profile to enable. All are pre-selected; deselect any you don't need.",
+        "title": "Select Custom PIDs"
+      },
       "standard_pids": {
         "data": {
           "standard_pids": "Standard OBD-II PIDs"

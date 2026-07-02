@@ -1,7 +1,7 @@
 """Config flow for Universal OBD BLE."""
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 import uuid
 
 from bleak.backends.device import BLEDevice
@@ -21,7 +21,6 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import SelectOptionDict
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from . import UniversalObdConfigEntry
 from .const import (
     CONF_ATRV_SUPPORTED,
     CONF_FAST_POLL,
@@ -62,8 +61,12 @@ from .uops import (
     pid_to_form_defaults,
     probe_connection,
     standard_pid_options,
+    user_input_to_form_defaults,
     validate_formula,
 )
+
+if TYPE_CHECKING:
+    from . import UniversalObdConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -108,6 +111,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._uuid_write: str = DEFAULT_UUID_WRITE
         self._discovered_characteristics: list = []
         self._profile_uops: UopsConfig = UopsConfig()
+        self._selected_standard_pids: list[str] = []
         self._scanned_supported: list[str] | None = None
         self._wican_profiles: dict[str, dict[str, Any]] = {}
 
@@ -159,6 +163,8 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._address = user_input[CONF_ADDRESS]
             assert self._address is not None
+            await self.async_set_unique_id(self._address)
+            self._abort_if_unique_id_configured()
             ble_device = async_ble_device_from_address(self.hass, self._address, True)
             if not ble_device:
                 errors["base"] = "device_not_found"
@@ -256,7 +262,9 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if choice == _NO_PROFILE:
                 self._profile_uops = UopsConfig()
             else:
-                builtin = load_builtin_profile(choice)
+                builtin = await self.hass.async_add_executor_job(
+                    load_builtin_profile, choice
+                )
                 if builtin is not None:
                     self._profile_uops = builtin
                 elif choice in self._wican_profiles:
@@ -268,7 +276,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             return await self.async_step_standard_pids()
 
-        builtins = list_builtin_profiles()
+        builtins = await self.hass.async_add_executor_job(list_builtin_profiles)
         builtin_names = [p["name"] for p in builtins]
 
         session = async_get_clientsession(self.hass)
@@ -306,12 +314,8 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.ConfigFlowResult:
         """Multiselect standard Mode 01 PIDs."""
         if user_input is not None:
-            selected = user_input.get("standard_pids", [])
-            uops = UopsConfig(
-                standard_pids=list(selected),
-                custom_pids=list(self._profile_uops.custom_pids),
-            )
-            return self._async_create_entry(uops)
+            self._selected_standard_pids = list(user_input.get("standard_pids", []))
+            return await self.async_step_custom_pids_select()
 
         scanned = self._scanned_supported
         if scanned:
@@ -328,7 +332,8 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         preselect_set = set(RECOMMENDED_DEFAULTS) | set(
             self._profile_uops.standard_pids
         )
-        preselect = [n for n in preselect_set if n in candidate_names]
+        # Iterate over candidate_names (sorted) for deterministic order.
+        preselect = [n for n in candidate_names if n in preselect_set]
 
         options = [
             SelectOptionDict(value=o["value"], label=o["label"])
@@ -342,6 +347,55 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(
                         "standard_pids", default=preselect
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            multiple=True,
+                        )
+                    )
+                }
+            ),
+        )
+
+    async def async_step_custom_pids_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Multiselect which custom PIDs from the profile to enable."""
+        if not self._profile_uops.custom_pids:
+            uops = UopsConfig(
+                standard_pids=list(self._selected_standard_pids),
+                custom_pids=[],
+            )
+            return self._async_create_entry(uops)
+
+        if user_input is not None:
+            selected_ids = set(user_input.get("custom_pids", []))
+            selected_custom = [
+                pid for pid in self._profile_uops.custom_pids if pid.id in selected_ids
+            ]
+            uops = UopsConfig(
+                standard_pids=list(self._selected_standard_pids),
+                custom_pids=selected_custom,
+            )
+            return self._async_create_entry(uops)
+
+        sorted_pids = sorted(self._profile_uops.custom_pids, key=lambda p: p.name)
+        options = [
+            SelectOptionDict(
+                value=pid.id,
+                label=f"{pid.name} ({pid.mode} {pid.query})",
+            )
+            for pid in sorted_pids
+        ]
+        preselect = [pid.id for pid in sorted_pids]
+
+        return self.async_show_form(
+            step_id="custom_pids_select",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "custom_pids", default=preselect
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=options,
@@ -638,7 +692,14 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                 self._options[CONF_UOPS] = self._uops.to_dict()
                 return self._async_save_options()
 
-        defaults = pid_to_form_defaults(existing) if existing else empty_form_defaults()
+        # On validation error, preserve the user's submitted input rather
+        # than resetting to stored/empty defaults.
+        if user_input is not None and errors:
+            defaults = user_input_to_form_defaults(user_input)
+        else:
+            defaults = (
+                pid_to_form_defaults(existing) if existing else empty_form_defaults()
+            )
 
         return self.async_show_form(
             step_id="custom_pid_edit",

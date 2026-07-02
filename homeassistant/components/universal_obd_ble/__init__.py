@@ -34,6 +34,9 @@ async def async_setup_entry(
 
     # First refresh - suppress exceptions so entities still register
     # (as unavailable) if the car is off or out of range at startup.
+    # async_config_entry_first_refresh() converts UpdateFailed to
+    # ConfigEntryNotReady internally, so we must catch Exception to
+    # prevent setup from blocking on transient adapter failures.
     with contextlib.suppress(Exception):
         await coordinator.async_config_entry_first_refresh()
 
@@ -51,8 +54,8 @@ async def async_setup_entry(
 
         # Debounce advertisement storms - only request a refresh if
         # we haven't attempted one in the last DEBOUNCE_COOLDOWN seconds.
-        if (now - coordinator.last_discovery_attempt) > DEBOUNCE_COOLDOWN:
-            coordinator.last_discovery_attempt = now
+        if (now - coordinator.last_rediscovery_attempt) > DEBOUNCE_COOLDOWN:
+            coordinator.last_rediscovery_attempt = now
             _LOGGER.debug("Initiating debounced arrival update for coordinator")
             hass.async_create_task(coordinator.async_request_refresh())
 

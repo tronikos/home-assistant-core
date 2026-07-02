@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 import logging
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -13,9 +13,11 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import UniversalObdConfigEntry
 from .coordinator import UniversalObdCoordinator
 from .entity import UniversalObdEntity
+
+if TYPE_CHECKING:
+    from . import UniversalObdConfigEntry
 
 PARALLEL_UPDATES: Final[int] = 0
 

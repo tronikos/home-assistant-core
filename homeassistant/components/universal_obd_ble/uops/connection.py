@@ -11,11 +11,12 @@ import logging
 
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
+from bleak.exc import BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from obdii import Command, Connection, Mode
 
 from .standard_pids import scan_supported_pids
-from .transport_ble import TransportBLE
+from .transport_ble import TransportBLE, TransportError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,15 +70,15 @@ def probe_connection(
 
         try:
             scanned = scan_supported_pids(conn)
-        except Exception as err:  # noqa: BLE001
+        except (BleakError, TimeoutError, OSError, KeyError, TransportError) as err:
             _LOGGER.debug("Supported-PID scan during setup failed: %s", err)
             scanned = None
-    except Exception as e:  # noqa: BLE001
+    except (BleakError, TimeoutError, OSError, TransportError) as e:
         _LOGGER.debug("Connection test failed: %s", e)
         return ConnectionTestResult(None, final_write, final_read, None)
     finally:
         if conn:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(BleakError, OSError, TransportError):
                 conn.close()
 
     success = resp is not None and b"?" not in resp.raw
@@ -99,12 +100,12 @@ async def async_get_characteristics(
         )
         for service in client.services:
             characteristics.extend(service.characteristics)
-    except Exception as err:  # noqa: BLE001
+    except (BleakError, TimeoutError, OSError) as err:
         _LOGGER.error("Failed to fetch GATT characteristics: %s", err)
         return []
     else:
         return characteristics
     finally:
         if client is not None:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(BleakError, OSError, TransportError):
                 await client.disconnect()

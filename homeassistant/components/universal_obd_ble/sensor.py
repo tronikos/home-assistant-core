@@ -1,7 +1,7 @@
 """Sensor platform for Universal OBD BLE."""
 
 import logging
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -14,7 +14,6 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import slugify
 
-from . import UniversalObdConfigEntry
 from .const import CONF_UOPS
 from .coordinator import UniversalObdCoordinator
 from .entity import UniversalObdEntity
@@ -28,6 +27,9 @@ from .uops import (
     propose_icon,
     propose_state_class,
 )
+
+if TYPE_CHECKING:
+    from . import UniversalObdConfigEntry
 
 PARALLEL_UPDATES: Final[int] = 0
 
@@ -125,13 +127,16 @@ class UniversalObdStandardSensor(UniversalObdEntity, SensorEntity):
         self._attr_name = " ".join(command.name.replace("_", " ").split()).capitalize()
         self._attr_unique_id = f"{config_entry.unique_id}-std-{slugify(command.name)}"
 
-        self._attr_icon = propose_icon(command) or "mdi:car"
-
         units = get_list_of_units(command)
         self._attr_native_unit_of_measurement = units[0] if units else None
 
         dc_name = propose_device_class(command)
         self._attr_device_class = _DEVICE_CLASS_MAP.get(dc_name) if dc_name else None
+
+        # Only set a custom icon when no device_class is available —
+        # HA auto-applies the correct icon based on device_class.
+        if self._attr_device_class is None:
+            self._attr_icon = propose_icon(command) or "mdi:car"
 
         sc_name = propose_state_class(command)
         self._attr_state_class = _STATE_CLASS_MAP.get(sc_name) if sc_name else None

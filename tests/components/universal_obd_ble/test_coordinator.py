@@ -156,5 +156,5 @@ async def test_coordinator_update_ble_out_of_range(
     ):
         coord = UniversalObdCoordinator(hass, mock_config_entry)
 
-        with pytest.raises(UpdateFailed, match="out of range"):
+        with pytest.raises(UpdateFailed, match="device_out_of_range"):
             await coord._async_update_data()

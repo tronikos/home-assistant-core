@@ -8,11 +8,13 @@ need HA's DataUpdateCoordinator coupling.
 import asyncio
 import contextlib
 from datetime import timedelta
+from enum import StrEnum
 import logging
 import time
 from typing import Any
 
 from bleak.backends.device import BLEDevice
+from bleak.exc import BleakError
 from obdii import Command, Connection, Mode, Response
 from obdii.transports.transport_base import TransportBase
 
@@ -28,12 +30,12 @@ from .scheduler import (
 )
 from .schema import UopsConfig
 from .standard_pids import get_standard_command
-from .transport_ble import TransportBLE
+from .transport_ble import TransportBLE, TransportError
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class PollingState:
+class PollingState(StrEnum):
     """States of the vehicle polling coordinator."""
 
     OUT_OF_RANGE = "out_of_range"
@@ -118,10 +120,10 @@ def create_connection(
             timeout=timeout,
         )
         return Connection(transport)
-    except Exception as e:  # noqa: BLE001
+    except (BleakError, TimeoutError, OSError, TransportError) as e:
         _LOGGER.warning("Connection failed: %s", e)
         if transport is not None:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(BleakError, OSError, TransportError):
                 transport.close()
         return None
 
@@ -144,7 +146,7 @@ def _send_at(transport: TransportBase, command: str) -> None:
     try:
         transport.write_bytes(command.encode() + b"\r")
         transport.read_bytes()
-    except Exception as err:  # noqa: BLE001
+    except (OSError, TimeoutError, TransportError) as err:
         _LOGGER.debug("AT command %r failed: %s", command, err)
 
 
@@ -186,9 +188,9 @@ def check_voltage(
     on_threshold: float,
     off_threshold: float,
     grace_seconds: int,
-    current_state: str,
+    current_state: PollingState,
     grace_start: float | None,
-) -> tuple[str, timedelta | None, float | None]:
+) -> tuple[PollingState, timedelta | None, float | None]:
     """Query battery voltage and determine the polling state + interval.
 
     Returns (state, interval_or_None, new_grace_start).

@@ -1,13 +1,16 @@
 """Common parent class for Universal OBD BLE entities."""
 
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import UniversalObdConfigEntry
 from .const import DOMAIN
 from .coordinator import UniversalObdCoordinator
+
+if TYPE_CHECKING:
+    from . import UniversalObdConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
