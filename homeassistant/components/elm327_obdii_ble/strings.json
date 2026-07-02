@@ -70,9 +70,6 @@
     "device_not_found": {
       "message": "BLE device not found for address {address}: {reason}"
     },
-    "device_out_of_range": {
-      "message": "BLE device out of range"
-    },
     "missing_unique_id": {
       "message": "Device registration failed: Unique Bluetooth MAC address is missing."
     },

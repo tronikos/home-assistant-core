@@ -75,7 +75,7 @@ class PollerConfig:
 class PollResult:
     """One polling cycle's outcome.
 
-    The coordinator reads ``state`` to pick the next ``update_interval``
+    The coordinator reads ``state`` to decide the next poll interval
     and ``data`` to populate ``coordinator.data``. ``voltage`` is
     exposed for diagnostics.
     """

@@ -42,7 +42,7 @@ async def async_setup_entry(
                 device_class=BinarySensorDeviceClass.CONNECTIVITY,
                 entity_category=EntityCategory.DIAGNOSTIC,
             ),
-            lambda: coordinator.ble_connected,
+            lambda: coordinator.available,
         ),
         Elm327ObdiiBinarySensor(
             coordinator,
