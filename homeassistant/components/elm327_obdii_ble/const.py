@@ -6,7 +6,7 @@ from homeassistant.const import Platform
 
 DOMAIN: Final = "elm327_obdii_ble"
 
-PLATFORMS: Final[list[Platform]] = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS: Final[list[Platform]] = [Platform.SENSOR]
 
 CONF_ATRV_SUPPORTED: Final = "atrv_supported"
 

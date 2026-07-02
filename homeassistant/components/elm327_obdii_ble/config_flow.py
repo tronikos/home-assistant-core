@@ -112,6 +112,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._scanned_supported: list[str] | None = None
         self._wican_profiles: dict[str, dict[str, Any]] = {}
         self._discovery_info: BluetoothServiceInfoBleak | None = None
+        self._wican_fetch_failed: bool = False
 
     async def _test_connection(
         self,
@@ -177,6 +178,8 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             self._address = user_input[CONF_ADDRESS]
+            # raise_on_progress=False: let explicit user setup override
+            # an in-flight bluetooth discovery flow for the same device.
             await self.async_set_unique_id(
                 format_mac(self._address), raise_on_progress=False
             )
@@ -200,9 +203,11 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.atrv_supported = result.success
                 return await self.async_step_vehicle()
 
+        current_ids = self._async_current_ids(include_ignore=False)
         devices = {
             dev.address: human_readable_name(None, dev.name, dev.address)
             for dev in async_discovered_service_info(self.hass)
+            if format_mac(dev.address) not in current_ids
         }
         if not devices:
             return self.async_abort(reason="no_devices_found")
@@ -274,6 +279,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Pick a built-in profile, none, or choose to import from WiCAN."""
+        errors: dict[str, str] = {}
         if user_input is not None:
             choice = user_input["profile"]
 
@@ -282,8 +288,6 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_standard_pids()
 
             if choice == _IMPORT_WICAN:
-                # Defer the WiCAN fetch to the next step so we only hit
-                # the network when the user actually wants a WiCAN profile.
                 return await self.async_step_wican()
 
             builtin = await self.hass.async_add_executor_job(
@@ -291,6 +295,10 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             self._profile_config = builtin if builtin is not None else ProfileConfig()
             return await self.async_step_standard_pids()
+
+        if self._wican_fetch_failed:
+            errors["base"] = "wican_fetch_failed"
+            self._wican_fetch_failed = False
 
         builtins = await self.hass.async_add_executor_job(list_builtin_profiles)
 
@@ -319,6 +327,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                 }
             ),
+            errors=errors,
         )
 
     async def async_step_wican(
@@ -345,10 +354,8 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._wican_profiles = await fetch_wican_profiles(session)
 
         if not self._wican_profiles:
-            # Network/parse failure - send the user back to the vehicle
-            # step. (We use a no-op form here; the user re-picks on the
-            # previous step.)
-            return self.async_abort(reason="wican_fetch_failed")
+            self._wican_fetch_failed = True
+            return await self.async_step_vehicle()
 
         options: list[SelectOptionDict] = [
             SelectOptionDict(value=car_model, label=car_model)

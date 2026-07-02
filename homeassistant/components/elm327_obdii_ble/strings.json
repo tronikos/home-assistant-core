@@ -3,13 +3,13 @@
     "abort": {
       "device_not_found": "The BLE device could not be found. It may have gone out of range or been powered off.",
       "no_characteristics_found": "Could not discover any Bluetooth characteristics on this device. Verify it is an OBD-II adapter.",
-      "no_devices_found": "No unconfigured ELM327 BLE devices found. Ensure your adapter is powered and in range.",
-      "wican_fetch_failed": "Could not fetch vehicle profiles from the WiCAN repository. Check your network connection and try again, or pick a built-in profile."
+      "no_devices_found": "No unconfigured ELM327 BLE devices found. Ensure your adapter is powered and in range."
     },
     "error": {
       "device_not_found": "Could not establish an over-the-air link to the device. Verify it is powered.",
       "invalid_formula": "The formula contains disallowed characters or syntax. Only digits, math operators (+ - * / // % ** & | ^ ~ << >>), parentheses, commas, and the functions B(n), B(n, m), S(n), S(n, m), BIT(b, n) are permitted.",
-      "invalid_hex": "Mode and query must be hexadecimal digits only (e.g. mode '22', query '028C1')."
+      "invalid_hex": "Mode and query must be hexadecimal digits only (e.g. mode '22', query '028C1').",
+      "wican_fetch_failed": "Could not fetch vehicle profiles from the WiCAN repository. Check your network connection and try again, or pick a built-in profile."
     },
     "step": {
       "bluetooth_confirm": {
@@ -57,6 +57,22 @@
         },
         "description": "These profiles were fetched from the meatpiHQ/wican-fw repository. After you pick one, it is translated into the integration's internal format and stored locally; nothing from the source JSON is redistributed.",
         "title": "Import from WiCAN Repository"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "adapter_state": {
+        "name": "Adapter State",
+        "state": {
+          "car_off": "Car off",
+          "car_on": "Car on",
+          "grace_period": "Grace period",
+          "out_of_range": "Out of range"
+        }
+      },
+      "battery_voltage": {
+        "name": "Battery Voltage"
       }
     }
   },

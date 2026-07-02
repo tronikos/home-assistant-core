@@ -1,12 +1,13 @@
 """Diagnostics support for the ELM327 OBD-II BLE integration."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components import bluetooth
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from .coordinator import Elm327ObdiiConfigEntry
+if TYPE_CHECKING:
+    from . import Elm327ObdiiConfigEntry
 
 ENTRY_TO_REDACT = frozenset({"address", "uuid_read", "uuid_write"})
 SERVICE_INFO_TO_REDACT = frozenset({"address", "name", "source", "device"})

@@ -8,6 +8,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
+from homeassistant.const import EntityCategory, UnitOfElectricPotential
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -18,6 +19,7 @@ from .const import CONF_PROFILE
 from .coordinator import Elm327ObdiiCoordinator
 from .elm327_obdii import (
     CustomPid,
+    PollingState,
     ProfileConfig,
     format_sensor_value,
     get_list_of_units,
@@ -54,6 +56,13 @@ _STATE_CLASS_MAP: dict[str, SensorStateClass] = {
     "measurement": SensorStateClass.MEASUREMENT,
     "total_increasing": SensorStateClass.TOTAL_INCREASING,
 }
+
+_ADAPTER_STATE_OPTIONS = [
+    PollingState.OUT_OF_RANGE.value,
+    PollingState.CAR_OFF.value,
+    PollingState.GRACE_PERIOD.value,
+    PollingState.CAR_ON.value,
+]
 
 
 async def async_setup_entry(
@@ -106,6 +115,9 @@ async def async_setup_entry(
     entities.extend(
         Elm327ObdiiCustomSensor(coordinator, entry, pid) for pid in profile.custom_pids
     )
+
+    entities.append(Elm327ObdiiStateSensor(coordinator, entry))
+    entities.append(Elm327ObdiiVoltageSensor(coordinator, entry))
 
     async_add_entities(entities)
 
@@ -210,3 +222,52 @@ class Elm327ObdiiCustomSensor(Elm327ObdiiEntity, SensorEntity):
             return float(value)
         except TypeError, ValueError:
             return None
+
+
+class Elm327ObdiiStateSensor(Elm327ObdiiEntity, SensorEntity):
+    """Diagnostic sensor tracking the adapter's polling state machine."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = _ADAPTER_STATE_OPTIONS
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "adapter_state"
+    _attr_icon = "mdi:car-connected"
+
+    def __init__(
+        self,
+        coordinator: Elm327ObdiiCoordinator,
+        config_entry: Elm327ObdiiConfigEntry,
+    ) -> None:
+        """Initialize the state sensor."""
+        super().__init__(coordinator, config_entry)
+        self._attr_unique_id = f"{config_entry.unique_id}-adapter-state"
+
+    @property
+    def native_value(self) -> str:
+        """Return the current polling state."""
+        return self.coordinator.polling_state.value
+
+
+class Elm327ObdiiVoltageSensor(Elm327ObdiiEntity, SensorEntity):
+    """Diagnostic sensor for the 12V battery voltage (from AT RV)."""
+
+    _attr_device_class = SensorDeviceClass.VOLTAGE
+    _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "battery_voltage"
+    _attr_icon = "mdi:car-battery"
+
+    def __init__(
+        self,
+        coordinator: Elm327ObdiiCoordinator,
+        config_entry: Elm327ObdiiConfigEntry,
+    ) -> None:
+        """Initialize the voltage sensor."""
+        super().__init__(coordinator, config_entry)
+        self._attr_unique_id = f"{config_entry.unique_id}-battery-voltage"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the last measured battery voltage."""
+        return self.coordinator.voltage

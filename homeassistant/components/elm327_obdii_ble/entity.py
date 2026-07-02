@@ -36,6 +36,9 @@ class Elm327ObdiiEntity(PassiveBluetoothCoordinatorEntity[Elm327ObdiiCoordinator
         """Initialize the base entity."""
         super().__init__(coordinator)
         self.config_entry = config_entry
+        # unique_id (format_mac) is for HA config entry tracking;
+        # coordinator.address is the raw address for BLE connections.
+        # Both are normalized to format_mac here for the device registry.
         address = format_mac(coordinator.address)
         self._attr_device_info = DeviceInfo(
             connections={(dr.CONNECTION_BLUETOOTH, address)},
@@ -47,3 +50,8 @@ class Elm327ObdiiEntity(PassiveBluetoothCoordinatorEntity[Elm327ObdiiCoordinator
             self._attr_device_info[ATTR_CONNECTIONS].add(
                 (dr.CONNECTION_NETWORK_MAC, address)
             )
+
+    @property
+    def available(self) -> bool:
+        """Always available — entities retain last known value when out of range."""
+        return True

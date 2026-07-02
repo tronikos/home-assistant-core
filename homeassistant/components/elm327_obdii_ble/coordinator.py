@@ -73,6 +73,7 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         self.entry = entry
         self._poller = Poller(self._build_poller_config(entry))
         self._last_state: PollingState = PollingState.OUT_OF_RANGE
+        self._voltage: float | None = None
         self._ble_device: BLEDevice | None = None
 
     @staticmethod
@@ -101,6 +102,16 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
             PollingState.CAR_ON,
             PollingState.GRACE_PERIOD,
         )
+
+    @property
+    def polling_state(self) -> PollingState:
+        """Last known vehicle polling state."""
+        return self._last_state
+
+    @property
+    def voltage(self) -> float | None:
+        """Last measured 12V battery voltage (from AT RV), or None."""
+        return self._voltage
 
     def disconnect(self) -> None:
         """Close the BLE connection from an executor pool thread."""
@@ -171,6 +182,15 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         self._ble_device = service_info.device
         super()._async_handle_bluetooth_event(service_info, change)
 
+    @callback
+    def _async_handle_unavailable(
+        self, service_info: BluetoothServiceInfoBleak
+    ) -> None:
+        """Device hasn't advertised in 5 minutes — force state to OUT_OF_RANGE."""
+        self._last_state = PollingState.OUT_OF_RANGE
+        self._poller.disconnect()
+        super()._async_handle_unavailable(service_info)
+
     async def _async_update(
         self, service_info: BluetoothServiceInfoBleak
     ) -> dict[str, Any]:
@@ -184,10 +204,12 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
                 translation_domain=DOMAIN, translation_key="polling_failed"
             )
         self._last_state = result.state
+        self._voltage = result.voltage
+        # Car off is a routine state, not a failure — return cached data
+        # so sensors hold their last known values and last_poll_successful
+        # stays True (distinguishing "parked" from "actually broken").
         if not result.any_success and result.state == PollingState.CAR_OFF:
-            raise UpdateFailed(
-                translation_domain=DOMAIN, translation_key="polling_failed"
-            )
+            return self.data or {}
         return dict(result.data)
 
     def _connect(self, ble_dev: BLEDevice) -> bool:
