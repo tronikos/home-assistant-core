@@ -18,15 +18,15 @@ from bleak_retry_connector import BleakClientWithServiceCache, establish_connect
 from obdii.basetypes import MISSING
 from obdii.transports.transport_base import TransportBase
 
-_LOGGER: logging.Logger = logging.getLogger(__package__)
+_LOGGER = logging.getLogger(__name__)
 
 
 class TransportError(RuntimeError):
-    """Raised by TransportBLE for connection/state failures.
+    """Raised by :class:`TransportBLE` for connection/state failures.
 
-    Subclasses RuntimeError for backward compatibility, but callers
-    should catch TransportError specifically to avoid swallowing
-    unrelated RuntimeErrors from the obdii library or Python.
+    Subclasses :class:`RuntimeError` for backward compatibility, but
+    callers should catch :class:`TransportError` specifically to avoid
+    swallowing unrelated RuntimeErrors from the obdii library or Python.
     """
 
 
@@ -45,7 +45,8 @@ class TransportBLE(TransportBase):
         """Initialize the BLE transport."""
         if ble_device is MISSING or uuid_write is MISSING or uuid_read is MISSING:
             raise ValueError(
-                f"ble_device ({ble_device}), uuid_write ({uuid_write}) and uuid_read ({uuid_read}) must be specified for TransportBLE."
+                f"ble_device ({ble_device}), uuid_write ({uuid_write}) and "
+                f"uuid_read ({uuid_read}) must be specified for TransportBLE."
             )
 
         self.config: dict[str, Any] = {

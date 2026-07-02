@@ -1,13 +1,11 @@
-"""Tests for the Universal OBD BLE coordinator."""
+"""Tests for the ELM327 OBD-II BLE coordinator."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from homeassistant.components.universal_obd_ble.coordinator import (
-    UniversalObdCoordinator,
-)
-from homeassistant.components.universal_obd_ble.uops import PollingState
+from homeassistant.components.elm327_obdii_ble.coordinator import Elm327ObdiiCoordinator
+from homeassistant.components.elm327_obdii_ble.elm327_obdii import PollingState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
@@ -20,19 +18,19 @@ async def test_coordinator_initial_state(
     """Test that the coordinator starts in OUT_OF_RANGE state."""
     with (
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.create_connection",
+            "homeassistant.components.elm327_obdii_ble.coordinator.create_connection",
             return_value=MagicMock(),
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_address_present",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_address_present",
             return_value=True,
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_ble_device_from_address",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_ble_device_from_address",
             return_value=MagicMock(),
         ),
     ):
-        coord = UniversalObdCoordinator(hass, mock_config_entry)
+        coord = Elm327ObdiiCoordinator(hass, mock_config_entry)
 
     assert coord.state == PollingState.OUT_OF_RANGE
     assert coord.data == {}
@@ -46,19 +44,19 @@ async def test_coordinator_ble_disconnected(
     """Test that ble_connected returns False when no API exists."""
     with (
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.create_connection",
+            "homeassistant.components.elm327_obdii_ble.coordinator.create_connection",
             return_value=MagicMock(),
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_address_present",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_address_present",
             return_value=True,
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_ble_device_from_address",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_ble_device_from_address",
             return_value=MagicMock(),
         ),
     ):
-        coord = UniversalObdCoordinator(hass, mock_config_entry)
+        coord = Elm327ObdiiCoordinator(hass, mock_config_entry)
 
     assert coord.ble_connected is False
 
@@ -69,19 +67,19 @@ async def test_coordinator_car_connected_false(
     """Test that car_connected is False when no successful poll has happened."""
     with (
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.create_connection",
+            "homeassistant.components.elm327_obdii_ble.coordinator.create_connection",
             return_value=MagicMock(),
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_address_present",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_address_present",
             return_value=True,
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_ble_device_from_address",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_ble_device_from_address",
             return_value=MagicMock(),
         ),
     ):
-        coord = UniversalObdCoordinator(hass, mock_config_entry)
+        coord = Elm327ObdiiCoordinator(hass, mock_config_entry)
 
     assert coord.car_connected is False
 
@@ -92,19 +90,19 @@ async def test_coordinator_disconnect(
     """Test that disconnect closes the API connection."""
     with (
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.create_connection",
+            "homeassistant.components.elm327_obdii_ble.coordinator.create_connection",
             return_value=mock_connection,
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_address_present",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_address_present",
             return_value=True,
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_ble_device_from_address",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_ble_device_from_address",
             return_value=MagicMock(),
         ),
     ):
-        coord = UniversalObdCoordinator(hass, mock_config_entry)
+        coord = Elm327ObdiiCoordinator(hass, mock_config_entry)
         coord.api = mock_connection
         coord._current_context = MagicMock()
 
@@ -121,19 +119,19 @@ async def test_coordinator_query_plan_built(
     """Test that the coordinator builds a query plan from UOPS config."""
     with (
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.create_connection",
+            "homeassistant.components.elm327_obdii_ble.coordinator.create_connection",
             return_value=MagicMock(),
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_address_present",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_address_present",
             return_value=True,
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_ble_device_from_address",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_ble_device_from_address",
             return_value=MagicMock(),
         ),
     ):
-        coord = UniversalObdCoordinator(hass, mock_config_entry)
+        coord = Elm327ObdiiCoordinator(hass, mock_config_entry)
 
     assert len(coord._query_plan) >= 1
     total_items = sum(len(group) for _, group in coord._query_plan)
@@ -146,15 +144,15 @@ async def test_coordinator_update_ble_out_of_range(
     """Test that _async_update_data raises when BLE is out of range."""
     with (
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.create_connection",
+            "homeassistant.components.elm327_obdii_ble.coordinator.create_connection",
             return_value=MagicMock(),
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_address_present",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_address_present",
             return_value=False,
         ),
     ):
-        coord = UniversalObdCoordinator(hass, mock_config_entry)
+        coord = Elm327ObdiiCoordinator(hass, mock_config_entry)
 
         with pytest.raises(UpdateFailed, match="device_out_of_range"):
             await coord._async_update_data()

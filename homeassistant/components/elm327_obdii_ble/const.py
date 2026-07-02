@@ -1,10 +1,10 @@
-"""Constants for Universal OBD BLE."""
+"""Constants for the ELM327 OBD-II BLE integration."""
 
 from typing import Final
 
 from homeassistant.const import Platform
 
-DOMAIN: Final = "universal_obd_ble"
+DOMAIN: Final = "elm327_obdii_ble"
 
 PLATFORMS: Final[list[Platform]] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
@@ -16,7 +16,7 @@ CONF_UUID_WRITE: Final = "uuid_write"
 DEFAULT_UUID_READ: Final = "0000fff1-0000-1000-8000-00805f9b34fb"
 DEFAULT_UUID_WRITE: Final = "0000fff2-0000-1000-8000-00805f9b34fb"
 
-CONF_UOPS: Final = "uops"
+CONF_PROFILE: Final = "profile"
 
 CONF_VOLTAGE_CHECK: Final = "voltage_check"
 CONF_FAST_POLL: Final = "fast_poll"

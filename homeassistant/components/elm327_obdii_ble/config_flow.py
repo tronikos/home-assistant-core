@@ -1,4 +1,4 @@
-"""Config flow for Universal OBD BLE."""
+"""Config flow for the ELM327 OBD-II BLE integration."""
 
 import logging
 from typing import TYPE_CHECKING, Any
@@ -25,8 +25,8 @@ from .const import (
     CONF_ATRV_SUPPORTED,
     CONF_FAST_POLL,
     CONF_GRACE_PERIOD,
+    CONF_PROFILE,
     CONF_SLOW_POLL,
-    CONF_UOPS,
     CONF_UUID_READ,
     CONF_UUID_WRITE,
     CONF_VOLTAGE_CHECK,
@@ -43,12 +43,12 @@ from .const import (
     DEFAULT_XS_POLL,
     DOMAIN,
 )
-from .uops import (
+from .elm327_obdii import (
     RECOMMENDED_DEFAULTS,
     ConnectionTestResult,
     CustomPid,
     FormulaValidationError,
-    UopsConfig,
+    ProfileConfig,
     all_known_standard_pid_names,
     as_float,
     async_get_characteristics,
@@ -66,7 +66,7 @@ from .uops import (
 )
 
 if TYPE_CHECKING:
-    from . import UniversalObdConfigEntry
+    from . import Elm327ObdiiConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def _state_class_options() -> list[SelectOptionDict]:
     ]
 
 
-class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle the initial setup config flow."""
 
     VERSION = 1
@@ -105,12 +105,12 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize flow state."""
         self._address: str | None = None
-        self._title: str = "Universal OBD BLE"
+        self._title: str = "ELM327 OBD-II BLE"
         self.atrv_supported: bool = True
         self._uuid_read: str = DEFAULT_UUID_READ
         self._uuid_write: str = DEFAULT_UUID_WRITE
         self._discovered_characteristics: list = []
-        self._profile_uops: UopsConfig = UopsConfig()
+        self._profile_config: ProfileConfig = ProfileConfig()
         self._selected_standard_pids: list[str] = []
         self._scanned_supported: list[str] | None = None
         self._wican_profiles: dict[str, dict[str, Any]] = {}
@@ -121,7 +121,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         uuid_write: str | None = None,
         uuid_read: str | None = None,
     ) -> ConnectionTestResult:
-        """Run connection test in executor."""
+        """Run the connection test in the executor pool."""
         return await self.hass.async_add_executor_job(
             probe_connection,
             ble_device,
@@ -159,7 +159,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Standard user setup step - pick a discovered BLE device."""
-        errors = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
             self._address = user_input[CONF_ADDRESS]
             assert self._address is not None
@@ -223,10 +223,10 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="no_characteristics_found")
 
         options: list[SelectOptionDict] = [
-            {
-                "value": char.uuid,
-                "label": f"{char.description or 'Unknown Characteristic'} ({char.uuid.split('-')[0]})",
-            }
+            SelectOptionDict(
+                value=char.uuid,
+                label=f"{char.description or 'Unknown Characteristic'} ({char.uuid.split('-')[0]})",
+            )
             for char in self._discovered_characteristics
         ]
 
@@ -260,19 +260,19 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             choice = user_input["profile"]
 
             if choice == _NO_PROFILE:
-                self._profile_uops = UopsConfig()
+                self._profile_config = ProfileConfig()
             else:
                 builtin = await self.hass.async_add_executor_job(
                     load_builtin_profile, choice
                 )
                 if builtin is not None:
-                    self._profile_uops = builtin
+                    self._profile_config = builtin
                 elif choice in self._wican_profiles:
-                    self._profile_uops = import_wican_profile(
+                    self._profile_config = import_wican_profile(
                         self._wican_profiles[choice]
                     )
                 else:
-                    self._profile_uops = UopsConfig()
+                    self._profile_config = ProfileConfig()
 
             return await self.async_step_standard_pids()
 
@@ -330,7 +330,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         preselect_set = set(RECOMMENDED_DEFAULTS) | set(
-            self._profile_uops.standard_pids
+            self._profile_config.standard_pids
         )
         # Iterate over candidate_names (sorted) for deterministic order.
         preselect = [n for n in candidate_names if n in preselect_set]
@@ -362,25 +362,27 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Multiselect which custom PIDs from the profile to enable."""
-        if not self._profile_uops.custom_pids:
-            uops = UopsConfig(
+        if not self._profile_config.custom_pids:
+            profile = ProfileConfig(
                 standard_pids=list(self._selected_standard_pids),
                 custom_pids=[],
             )
-            return self._async_create_entry(uops)
+            return self._async_create_entry(profile)
 
         if user_input is not None:
             selected_ids = set(user_input.get("custom_pids", []))
             selected_custom = [
-                pid for pid in self._profile_uops.custom_pids if pid.id in selected_ids
+                pid
+                for pid in self._profile_config.custom_pids
+                if pid.id in selected_ids
             ]
-            uops = UopsConfig(
+            profile = ProfileConfig(
                 standard_pids=list(self._selected_standard_pids),
                 custom_pids=selected_custom,
             )
-            return self._async_create_entry(uops)
+            return self._async_create_entry(profile)
 
-        sorted_pids = sorted(self._profile_uops.custom_pids, key=lambda p: p.name)
+        sorted_pids = sorted(self._profile_config.custom_pids, key=lambda p: p.name)
         options = [
             SelectOptionDict(
                 value=pid.id,
@@ -407,8 +409,10 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         )
 
-    def _async_create_entry(self, uops: UopsConfig) -> config_entries.ConfigFlowResult:
-        """Create the config entry with device data + UOPS options + polling defaults."""
+    def _async_create_entry(
+        self, profile: ProfileConfig
+    ) -> config_entries.ConfigFlowResult:
+        """Create the config entry with device data + profile options + polling defaults."""
         return self.async_create_entry(
             title=self._title,
             data={
@@ -418,7 +422,7 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_UUID_WRITE: self._uuid_write,
             },
             options={
-                CONF_UOPS: uops.to_dict(),
+                CONF_PROFILE: profile.to_dict(),
                 CONF_VOLTAGE_CHECK: True,
                 CONF_FAST_POLL: DEFAULT_FAST_POLL,
                 CONF_SLOW_POLL: DEFAULT_SLOW_POLL,
@@ -432,20 +436,20 @@ class UniversalObdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(
-        config_entry: UniversalObdConfigEntry,
+        config_entry: Elm327ObdiiConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Create the options flow."""
-        return UniversalObdBleOptionsFlow(config_entry)
+        return Elm327ObdiiOptionsFlow(config_entry)
 
 
-class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
+class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
     """Handle options adjustment post-setup."""
 
-    def __init__(self, config_entry: UniversalObdConfigEntry) -> None:
+    def __init__(self, config_entry: Elm327ObdiiConfigEntry) -> None:
         """Initialize options flow state."""
         super().__init__()
         self._options = dict(config_entry.options)
-        self._uops = UopsConfig.from_dict(self._options.get(CONF_UOPS, {}))
+        self._profile = ProfileConfig.from_dict(self._options.get(CONF_PROFILE, {}))
         self._editing_pid_id: str | None = None
 
     async def async_step_init(
@@ -523,8 +527,8 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Multiselect standard PIDs, with live ECU re-scan for supported ones."""
         if user_input is not None:
-            self._uops.standard_pids = list(user_input.get("standard_pids", []))
-            self._options[CONF_UOPS] = self._uops.to_dict()
+            self._profile.standard_pids = list(user_input.get("standard_pids", []))
+            self._options[CONF_PROFILE] = self._profile.to_dict()
             return self._async_save_options()
 
         scanned: list[str] | None = None
@@ -549,7 +553,7 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                 "shown; deselect any that aren't supported by your vehicle."
             )
 
-        preselect = [n for n in self._uops.standard_pids if n in candidate_names]
+        preselect = [n for n in self._profile.standard_pids if n in candidate_names]
 
         options = [
             SelectOptionDict(value=o["value"], label=o["label"])
@@ -589,7 +593,7 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
             return await self.async_step_custom_pid_edit()
 
         sorted_pids = sorted(
-            self._uops.custom_pids,
+            self._profile.custom_pids,
             key=lambda p: (p.can_header or "", p.can_filter or "", p.name),
         )
         options: list[SelectOptionDict] = [
@@ -626,7 +630,7 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
         existing: CustomPid | None = None
         if self._editing_pid_id is not None:
             existing = next(
-                (p for p in self._uops.custom_pids if p.id == self._editing_pid_id),
+                (p for p in self._profile.custom_pids if p.id == self._editing_pid_id),
                 None,
             )
             if existing is None:
@@ -635,10 +639,10 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             if user_input.get("remove"):
                 if existing is not None:
-                    self._uops.custom_pids = [
-                        p for p in self._uops.custom_pids if p.id != existing.id
+                    self._profile.custom_pids = [
+                        p for p in self._profile.custom_pids if p.id != existing.id
                     ]
-                    self._options[CONF_UOPS] = self._uops.to_dict()
+                    self._options[CONF_PROFILE] = self._profile.to_dict()
                     return self._async_save_options()
                 return await self.async_step_custom_pids()
 
@@ -683,13 +687,13 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
                     source="manual",
                 )
                 if existing is not None:
-                    self._uops.custom_pids = [
+                    self._profile.custom_pids = [
                         pid if p.id == existing.id else p
-                        for p in self._uops.custom_pids
+                        for p in self._profile.custom_pids
                     ]
                 else:
-                    self._uops.custom_pids.append(pid)
-                self._options[CONF_UOPS] = self._uops.to_dict()
+                    self._profile.custom_pids.append(pid)
+                self._options[CONF_PROFILE] = self._profile.to_dict()
                 return self._async_save_options()
 
         # On validation error, preserve the user's submitted input rather
@@ -784,5 +788,5 @@ class UniversalObdBleOptionsFlow(config_entries.OptionsFlow):
 
     def _async_save_options(self) -> config_entries.ConfigFlowResult:
         """Write the working options back to the config entry."""
-        self._options[CONF_UOPS] = self._uops.to_dict()
+        self._options[CONF_PROFILE] = self._profile.to_dict()
         return self.async_create_entry(title="", data=self._options)

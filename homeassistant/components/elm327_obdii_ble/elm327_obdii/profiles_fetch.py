@@ -20,7 +20,7 @@ async def fetch_wican_profiles(session: ClientSession) -> dict[str, dict[str, An
     """Fetch WiCAN's vehicle_profiles.json, return {car_model: raw_dict}.
 
     Returns {} on any failure (network, parse, shape mismatch). Nothing
-    from the source JSON is persisted; only the translated UopsConfig is.
+    from the source JSON is persisted; only the translated ProfileConfig is.
     """
     try:
         async with session.get(

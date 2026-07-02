@@ -2,12 +2,12 @@
 
 Original works - not derivatives of any upstream GPL-licensed profile
 database. CAN PID addresses are factual data (not copyrightable);
-formulas use UOPS canonical notation; the JSON schema is UopsConfig.
+formulas use UOPS canonical notation; the JSON schema is ProfileConfig.
 
 For a wider selection, the integration fetches WiCAN's
 vehicle_profiles.json at runtime and translates it via
 `uops.importers.wican.import_wican_profile`. Nothing from the source
-JSON is persisted or redistributed; only the resulting UopsConfig is
+JSON is persisted or redistributed; only the resulting ProfileConfig is
 stored in the user's HA config entry.
 """
 
@@ -15,7 +15,7 @@ from importlib import resources
 import json
 from typing import Any
 
-from ..schema import CustomPid, UopsConfig
+from ..schema import CustomPid, ProfileConfig
 
 
 def list_builtin_profiles() -> list[dict[str, Any]]:
@@ -33,8 +33,8 @@ def list_builtin_profiles() -> list[dict[str, Any]]:
     return list(data.get("profiles", []))
 
 
-def load_builtin_profile(name: str) -> UopsConfig | None:
-    """Return the named built-in profile as a UopsConfig, or None if not found.
+def load_builtin_profile(name: str) -> ProfileConfig | None:
+    """Return the named built-in profile as a ProfileConfig, or None if not found.
 
     Name match is exact and case-sensitive. Built-in profile names are
     defined in builtin.json and are stable across releases - adding a
@@ -43,11 +43,11 @@ def load_builtin_profile(name: str) -> UopsConfig | None:
     """
     for entry in list_builtin_profiles():
         if entry.get("name") == name:
-            return _entry_to_uops(entry)
+            return _entry_to_profile(entry)
     return None
 
 
-def _entry_to_uops(entry: dict[str, Any]) -> UopsConfig:
+def _entry_to_profile(entry: dict[str, Any]) -> ProfileConfig:
     standard = list(entry.get("standard_pids", []))
     custom: list[CustomPid] = []
     for cp_dict in entry.get("custom_pids", []):
@@ -59,4 +59,4 @@ def _entry_to_uops(entry: dict[str, Any]) -> UopsConfig:
         if "id" not in cp_dict:
             continue
         custom.append(CustomPid.from_dict(cp_dict))
-    return UopsConfig(standard_pids=standard, custom_pids=custom)
+    return ProfileConfig(standard_pids=standard, custom_pids=custom)

@@ -52,7 +52,7 @@ class CustomPid:
 
 
 @dataclass
-class UopsConfig:
+class ProfileConfig:
     """The whole tracked set, isolated from any upstream schema."""
 
     standard_pids: list[str] = field(
@@ -68,7 +68,7 @@ class UopsConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> UopsConfig:
+    def from_dict(cls, data: dict[str, Any]) -> ProfileConfig:
         """Deserialize from a stored dict."""
         return cls(
             standard_pids=list(data.get("standard_pids", [])),

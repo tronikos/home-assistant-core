@@ -482,6 +482,8 @@ CLAUDE.md @home-assistant/core
 /tests/components/elgato/ @frenck
 /homeassistant/components/elkm1/ @gwww @bdraco
 /tests/components/elkm1/ @gwww @bdraco
+/homeassistant/components/elm327_obdii_ble/ @tronikos
+/tests/components/elm327_obdii_ble/ @tronikos
 /homeassistant/components/elmax/ @albertogeniola
 /tests/components/elmax/ @albertogeniola
 /homeassistant/components/elv/ @majuss
@@ -1974,8 +1976,6 @@ CLAUDE.md @home-assistant/core
 /tests/components/unifi_discovery/ @RaHehl
 /homeassistant/components/unifiprotect/ @RaHehl
 /tests/components/unifiprotect/ @RaHehl
-/homeassistant/components/universal_obd_ble/ @tronikos
-/tests/components/universal_obd_ble/ @tronikos
 /homeassistant/components/upb/ @gwww
 /tests/components/upb/ @gwww
 /homeassistant/components/upc_connect/ @pvizeli @fabaff

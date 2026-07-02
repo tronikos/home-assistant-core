@@ -1,4 +1,4 @@
-"""Set up the Universal OBD BLE integration."""
+"""Set up the ELM327 OBD-II BLE integration."""
 
 import contextlib
 import logging
@@ -12,16 +12,14 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
 
 from .const import DEBOUNCE_COOLDOWN, DOMAIN, PLATFORMS
-from .coordinator import UniversalObdCoordinator
+from .coordinator import Elm327ObdiiCoordinator
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
-type UniversalObdConfigEntry = ConfigEntry[UniversalObdCoordinator]
+type Elm327ObdiiConfigEntry = ConfigEntry[Elm327ObdiiCoordinator]
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: UniversalObdConfigEntry
-) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: Elm327ObdiiConfigEntry) -> bool:
     """Set up this integration from a config entry."""
     if not entry.unique_id:
         raise ConfigEntryError(
@@ -29,7 +27,7 @@ async def async_setup_entry(
             translation_key="missing_unique_id",
         )
 
-    coordinator = UniversalObdCoordinator(hass, entry)
+    coordinator = Elm327ObdiiCoordinator(hass, entry)
     entry.runtime_data = coordinator
 
     # First refresh - suppress exceptions so entities still register
@@ -69,12 +67,12 @@ async def async_setup_entry(
     )
 
     async def update_options_listener(
-        hass: HomeAssistant, entry: UniversalObdConfigEntry
+        hass: HomeAssistant, entry: Elm327ObdiiConfigEntry
     ) -> None:
         """Reload the config entry when options change.
 
         A full reload creates a fresh coordinator, which rebuilds its
-        UOPS query plan from the updated entry.options[CONF_UOPS].
+        query plan from the updated entry.options[CONF_PROFILE].
         """
         await hass.config_entries.async_reload(entry.entry_id)
 
@@ -84,7 +82,7 @@ async def async_setup_entry(
 
 
 async def async_unload_entry(
-    hass: HomeAssistant, entry: UniversalObdConfigEntry
+    hass: HomeAssistant, entry: Elm327ObdiiConfigEntry
 ) -> bool:
     """Handle removal of a config entry."""
     unloaded: Final = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

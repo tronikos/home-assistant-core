@@ -6,7 +6,7 @@ library and the upstream `obdii` (py-obdii) package.
 Public surface
 --------------
 
-  schema:           CustomPid, UopsConfig
+  schema:           CustomPid, ProfileConfig
   compiler:         FormulaValidationError, validate_formula,
                     compile_formula, make_evaluator
   scheduler:        CanContext, StandardQueryItem, CustomQueryItem,
@@ -75,7 +75,7 @@ from .scheduler import (
     build_query_plan,
     context_for_custom_pid,
 )
-from .schema import CustomPid, UopsConfig
+from .schema import CustomPid, ProfileConfig
 from .standard_pids import (
     RECOMMENDED_DEFAULTS,
     get_list_of_units,
@@ -106,12 +106,12 @@ __all__ = [
     "CustomQueryItem",
     "FormulaValidationError",
     "PollingState",
+    "ProfileConfig",
     "ProfileImporter",
     "QueryItem",
     "StandardQueryItem",
     "TransportBLE",
     "TransportError",
-    "UopsConfig",
     "WicanImporter",
     "all_known_standard_pid_names",
     "apply_can_context",

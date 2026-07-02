@@ -1,4 +1,4 @@
-"""Common parent class for Universal OBD BLE entities."""
+"""Common parent class for ELM327 OBD-II BLE entities."""
 
 import logging
 from typing import TYPE_CHECKING
@@ -7,21 +7,21 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import UniversalObdCoordinator
+from .coordinator import Elm327ObdiiCoordinator
 
 if TYPE_CHECKING:
-    from . import UniversalObdConfigEntry
+    from . import Elm327ObdiiConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class UniversalObdEntity(CoordinatorEntity[UniversalObdCoordinator]):
+class Elm327ObdiiEntity(CoordinatorEntity[Elm327ObdiiCoordinator]):
     """Base entity that links to the shared Bluetooth device entry."""
 
     def __init__(
         self,
-        coordinator: UniversalObdCoordinator,
-        config_entry: UniversalObdConfigEntry,
+        coordinator: Elm327ObdiiCoordinator,
+        config_entry: Elm327ObdiiConfigEntry,
     ) -> None:
         """Initialize the base entity."""
         super().__init__(coordinator)
@@ -36,6 +36,6 @@ class UniversalObdEntity(CoordinatorEntity[UniversalObdCoordinator]):
             identifiers={(DOMAIN, unique_id)} if unique_id else set(),
             connections={(CONNECTION_BLUETOOTH, unique_id)} if unique_id else set(),
             name=self.config_entry.title,
-            manufacturer="Universal OBD BLE",
+            manufacturer="ELM327 OBD-II BLE",
             model="ELM327 BLE Adapter",
         )

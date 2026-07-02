@@ -2,7 +2,7 @@
   "config": {
     "abort": {
       "no_characteristics_found": "Could not discover any Bluetooth characteristics on this device. Verify it is an OBD-II adapter.",
-      "no_devices_found": "No unconfigured OBD BLE devices found. Ensure your adapter is powered and in range."
+      "no_devices_found": "No unconfigured ELM327 BLE devices found. Ensure your adapter is powered and in range."
     },
     "error": {
       "device_not_found": "Could not establish an over-the-air link to the device. Verify it is powered.",
@@ -37,7 +37,7 @@
           "address": "Bluetooth Address"
         },
         "description": "Select your ELM327 Bluetooth device from the discovered list below.",
-        "title": "Select OBD2 BLE Device"
+        "title": "Select ELM327 BLE Device"
       },
       "vehicle": {
         "data": {
@@ -111,7 +111,7 @@
           "polling": "Configure polling intervals & battery guard thresholds",
           "standard_pids": "Select which standard OBD-II PIDs to poll"
         },
-        "title": "OBD2 Configuration Menu"
+        "title": "OBD-II Configuration Menu"
       },
       "polling": {
         "data": {

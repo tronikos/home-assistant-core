@@ -2,18 +2,18 @@
 
 Each upstream profile format (WiCAN JSON, future Torque CSV, future
 RealDash XML) gets one importer module that knows the upstream schema
-shape. Everything downstream works only with the UopsConfig produced
+shape. Everything downstream works only with the ProfileConfig produced
 by the importer, never with the raw upstream dict.
 """
 
 from typing import Protocol, runtime_checkable
 
-from ..schema import UopsConfig
+from ..schema import ProfileConfig
 
 
 @runtime_checkable
 class ProfileImporter(Protocol):
-    """An importer translates some external profile format into UopsConfig.
+    """An importer translates some external profile format into ProfileConfig.
 
     Implementations are responsible for:
 
@@ -43,8 +43,8 @@ class ProfileImporter(Protocol):
         not validate the full payload here.
         """
 
-    def import_profile(self, raw: object) -> UopsConfig:
-        """Translate `raw` into a UopsConfig.
+    def import_profile(self, raw: object) -> ProfileConfig:
+        """Translate `raw` into a ProfileConfig.
 
         Raises ValueError if `raw` is not a shape this importer can
         handle. Should never raise on a single bad PID - skip it and

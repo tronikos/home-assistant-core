@@ -1,4 +1,4 @@
-"""Test fixtures for Universal OBD BLE integration tests."""
+"""Test fixtures for ELM327 OBD-II BLE integration tests."""
 
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -6,10 +6,8 @@ from unittest.mock import MagicMock, patch
 import obdii  # noqa: F401  # pre-cache upstream before uops shadows it
 import pytest
 
-from homeassistant.components.universal_obd_ble.const import DOMAIN
-from homeassistant.components.universal_obd_ble.coordinator import (
-    UniversalObdCoordinator,
-)
+from homeassistant.components.elm327_obdii_ble.const import DOMAIN
+from homeassistant.components.elm327_obdii_ble.coordinator import Elm327ObdiiCoordinator
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -30,7 +28,7 @@ def mock_config_entry() -> MagicMock:
         "uuid_write": "0000fff2-0000-1000-8000-00805f9b34fb",
     }
     entry.options = {
-        "uops": {
+        "profile": {
             "standard_pids": ["ENGINE_SPEED", "VEHICLE_SPEED"],
             "custom_pids": [],
         },
@@ -93,22 +91,22 @@ def mock_coordinator(
     mock_config_entry: MagicMock,
     mock_connection: MagicMock,
     mock_ble_device: MagicMock,
-) -> UniversalObdCoordinator:
+) -> Elm327ObdiiCoordinator:
     """Return a coordinator with mocked BLE + connection."""
     with (
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.create_connection",
+            "homeassistant.components.elm327_obdii_ble.coordinator.create_connection",
             return_value=mock_connection,
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_address_present",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_address_present",
             return_value=True,
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.coordinator.async_ble_device_from_address",
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_ble_device_from_address",
             return_value=mock_ble_device,
         ),
     ):
-        coord = UniversalObdCoordinator(hass, mock_config_entry)
+        coord = Elm327ObdiiCoordinator(hass, mock_config_entry)
         mock_config_entry.runtime_data = coord
         return coord

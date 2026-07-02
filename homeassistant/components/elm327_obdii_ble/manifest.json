@@ -1,6 +1,6 @@
 {
-  "domain": "universal_obd_ble",
-  "name": "Universal OBD BLE",
+  "domain": "elm327_obdii_ble",
+  "name": "ELM327 OBD-II BLE",
   "bluetooth": [
     { "service_uuid": "0000ffe0-0000-1000-8000-00805f9b34fb" },
     { "service_uuid": "0000fff0-0000-1000-8000-00805f9b34fb" },
@@ -9,7 +9,7 @@
   "codeowners": ["@tronikos"],
   "config_flow": true,
   "dependencies": ["bluetooth", "bluetooth_adapters"],
-  "documentation": "https://www.home-assistant.io/integrations/universal_obd_ble",
+  "documentation": "https://www.home-assistant.io/integrations/elm327_obdii_ble",
   "integration_type": "device",
   "iot_class": "local_polling",
   "quality_scale": "bronze",

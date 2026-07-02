@@ -1,7 +1,7 @@
-"""Profile importers - translate upstream formats into UopsConfig.
+"""Profile importers - translate upstream formats into ProfileConfig.
 
 Each importer is the only place that knows its upstream schema shape.
-Everything downstream works purely with UopsConfig.
+Everything downstream works purely with ProfileConfig.
 
 Currently implemented:
   - WiCAN JSON  (meatpiHQ/wican-fw vehicle_profiles.json)

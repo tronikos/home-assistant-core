@@ -28,7 +28,7 @@ from .scheduler import (
     build_query_plan,
     context_for_custom_pid,
 )
-from .schema import UopsConfig
+from .schema import ProfileConfig
 from .standard_pids import get_standard_command
 from .transport_ble import TransportBLE, TransportError
 
@@ -45,9 +45,9 @@ class PollingState(StrEnum):
 
 
 def build_query_plan_from_uops(
-    uops: UopsConfig,
+    uops: ProfileConfig,
 ) -> list[tuple[CanContext, list[QueryItem]]]:
-    """Build an ordered query plan from a UopsConfig.
+    """Build an ordered query plan from a ProfileConfig.
 
     Standard Mode 01 PIDs and custom PIDs are combined into a single
     plan grouped by CAN context. The default context (header=None)

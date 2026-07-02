@@ -112,6 +112,18 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "service_uuid": "e7a60001-6639-429f-94fd-86de8ea26897",
     },
     {
+        "domain": "elm327_obdii_ble",
+        "service_uuid": "0000ffe0-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "elm327_obdii_ble",
+        "service_uuid": "0000fff0-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "elm327_obdii_ble",
+        "service_uuid": "000018f0-0000-1000-8000-00805f9b34fb",
+    },
+    {
         "connectable": True,
         "domain": "eq3btsmart",
         "local_name": "CC-RT-BLE",
@@ -1222,18 +1234,6 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "domain": "togrill",
         "manufacturer_id": 34714,
         "service_uuid": "0000cee0-0000-1000-8000-00805f9b34fb",
-    },
-    {
-        "domain": "universal_obd_ble",
-        "service_uuid": "0000ffe0-0000-1000-8000-00805f9b34fb",
-    },
-    {
-        "domain": "universal_obd_ble",
-        "service_uuid": "0000fff0-0000-1000-8000-00805f9b34fb",
-    },
-    {
-        "domain": "universal_obd_ble",
-        "service_uuid": "000018f0-0000-1000-8000-00805f9b34fb",
     },
     {
         "connectable": False,

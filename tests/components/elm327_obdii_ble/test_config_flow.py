@@ -1,11 +1,14 @@
-"""Tests for the Universal OBD BLE config flow."""
+"""Tests for the ELM327 OBD-II BLE config flow."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from homeassistant.components.universal_obd_ble import config_flow
-from homeassistant.components.universal_obd_ble.uops import CustomPid, UopsConfig
+from homeassistant.components.elm327_obdii_ble import config_flow
+from homeassistant.components.elm327_obdii_ble.elm327_obdii import (
+    CustomPid,
+    ProfileConfig,
+)
 from homeassistant.core import HomeAssistant
 
 pytestmark = pytest.mark.asyncio
@@ -13,11 +16,11 @@ pytestmark = pytest.mark.asyncio
 
 async def test_user_step_no_devices(hass: HomeAssistant) -> None:
     """Test that the user step aborts when no devices are found."""
-    flow = config_flow.UniversalObdConfigFlow()
+    flow = config_flow.Elm327ObdiiConfigFlow()
     flow.hass = hass
 
     with patch(
-        "homeassistant.components.universal_obd_ble.config_flow.async_discovered_service_info",
+        "homeassistant.components.elm327_obdii_ble.config_flow.async_discovered_service_info",
         return_value=[],
     ):
         result = await flow.async_step_user()
@@ -28,7 +31,7 @@ async def test_user_step_no_devices(hass: HomeAssistant) -> None:
 
 async def test_user_step_shows_form(hass: HomeAssistant) -> None:
     """Test that the user step shows a form when devices are discovered."""
-    flow = config_flow.UniversalObdConfigFlow()
+    flow = config_flow.Elm327ObdiiConfigFlow()
     flow.hass = hass
 
     mock_dev = MagicMock()
@@ -36,7 +39,7 @@ async def test_user_step_shows_form(hass: HomeAssistant) -> None:
     mock_dev.name = "Test Adapter"
 
     with patch(
-        "homeassistant.components.universal_obd_ble.config_flow.async_discovered_service_info",
+        "homeassistant.components.elm327_obdii_ble.config_flow.async_discovered_service_info",
         return_value=[mock_dev],
     ):
         result = await flow.async_step_user()
@@ -46,18 +49,18 @@ async def test_user_step_shows_form(hass: HomeAssistant) -> None:
 
 
 async def test_vehicle_step_with_no_profile(hass: HomeAssistant) -> None:
-    """Test that selecting 'none' produces an empty UopsConfig."""
-    flow = config_flow.UniversalObdConfigFlow()
+    """Test that selecting 'none' produces an empty ProfileConfig."""
+    flow = config_flow.Elm327ObdiiConfigFlow()
     flow.hass = hass
     flow._wican_profiles = {}
 
     with (
         patch(
-            "homeassistant.components.universal_obd_ble.config_flow.list_builtin_profiles",
+            "homeassistant.components.elm327_obdii_ble.config_flow.list_builtin_profiles",
             return_value=[],
         ),
         patch(
-            "homeassistant.components.universal_obd_ble.config_flow.fetch_wican_profiles",
+            "homeassistant.components.elm327_obdii_ble.config_flow.fetch_wican_profiles",
             return_value={},
         ),
     ):
@@ -65,35 +68,35 @@ async def test_vehicle_step_with_no_profile(hass: HomeAssistant) -> None:
 
     assert result["type"] == "form"
     assert result["step_id"] == "standard_pids"
-    assert flow._profile_uops == UopsConfig()
+    assert flow._profile_config == ProfileConfig()
 
 
 async def test_standard_pids_step_creates_entry(hass: HomeAssistant) -> None:
     """Test that the standard PIDs step creates a config entry."""
-    flow = config_flow.UniversalObdConfigFlow()
+    flow = config_flow.Elm327ObdiiConfigFlow()
     flow.hass = hass
     flow._address = "AA:BB:CC:DD:EE:FF"
     flow._title = "Test"
     flow.atrv_supported = True
     flow._uuid_read = "0000fff1-0000-1000-8000-00805f9b34fb"
     flow._uuid_write = "0000fff2-0000-1000-8000-00805f9b34fb"
-    flow._profile_uops = UopsConfig()
+    flow._profile_config = ProfileConfig()
 
     result = flow._async_create_entry(
-        UopsConfig(standard_pids=["ENGINE_SPEED"], custom_pids=[])
+        ProfileConfig(standard_pids=["ENGINE_SPEED"], custom_pids=[])
     )
 
     assert result["type"] == "create_entry"
     assert result["title"] == "Test"
     assert result["data"]["address"] == "AA:BB:CC:DD:EE:FF"
-    assert "ENGINE_SPEED" in result["options"]["uops"]["standard_pids"]
+    assert "ENGINE_SPEED" in result["options"]["profile"]["standard_pids"]
 
 
 async def test_options_flow_init_menu(
     hass: HomeAssistant, mock_config_entry: MagicMock
 ) -> None:
     """Test that the options flow shows the 3-item menu."""
-    flow = config_flow.UniversalObdBleOptionsFlow(mock_config_entry)
+    flow = config_flow.Elm327ObdiiOptionsFlow(mock_config_entry)
 
     result = await flow.async_step_init()
 
@@ -105,7 +108,7 @@ async def test_options_flow_polling_saves(
     hass: HomeAssistant, mock_config_entry: MagicMock
 ) -> None:
     """Test that the polling options step saves correctly."""
-    flow = config_flow.UniversalObdBleOptionsFlow(mock_config_entry)
+    flow = config_flow.Elm327ObdiiOptionsFlow(mock_config_entry)
     flow.hass = hass
 
     result = await flow.async_step_polling(
@@ -129,7 +132,7 @@ async def test_options_flow_custom_pid_add(
     hass: HomeAssistant, mock_config_entry: MagicMock
 ) -> None:
     """Test adding a custom PID via the options flow."""
-    flow = config_flow.UniversalObdBleOptionsFlow(mock_config_entry)
+    flow = config_flow.Elm327ObdiiOptionsFlow(mock_config_entry)
     flow.hass = hass
 
     result = await flow.async_step_custom_pid_edit(
@@ -152,7 +155,7 @@ async def test_options_flow_custom_pid_add(
     )
 
     assert result["type"] == "create_entry"
-    custom_pids = result["data"]["uops"]["custom_pids"]
+    custom_pids = result["data"]["profile"]["custom_pids"]
     assert len(custom_pids) == 1
     assert custom_pids[0]["name"] == "Test SOC"
     assert custom_pids[0]["formula"] == "B(4) / 2.55"
@@ -162,7 +165,7 @@ async def test_options_flow_custom_pid_invalid_formula(
     hass: HomeAssistant, mock_config_entry: MagicMock
 ) -> None:
     """Test that an invalid formula shows an error."""
-    flow = config_flow.UniversalObdBleOptionsFlow(mock_config_entry)
+    flow = config_flow.Elm327ObdiiOptionsFlow(mock_config_entry)
     flow.hass = hass
 
     result = await flow.async_step_custom_pid_edit(
@@ -193,7 +196,7 @@ async def test_options_flow_custom_pid_invalid_hex(
     hass: HomeAssistant, mock_config_entry: MagicMock
 ) -> None:
     """Test that invalid hex mode shows an error."""
-    flow = config_flow.UniversalObdBleOptionsFlow(mock_config_entry)
+    flow = config_flow.Elm327ObdiiOptionsFlow(mock_config_entry)
     flow.hass = hass
 
     result = await flow.async_step_custom_pid_edit(
@@ -223,7 +226,7 @@ async def test_options_flow_custom_pid_delete(
     hass: HomeAssistant, mock_config_entry: MagicMock
 ) -> None:
     """Test deleting a custom PID via the remove checkbox."""
-    flow = config_flow.UniversalObdBleOptionsFlow(mock_config_entry)
+    flow = config_flow.Elm327ObdiiOptionsFlow(mock_config_entry)
     flow.hass = hass
 
     existing_pid = CustomPid(
@@ -233,10 +236,10 @@ async def test_options_flow_custom_pid_delete(
         query="028C1",
         formula="B(0)",
     )
-    flow._uops.custom_pids = [existing_pid]
+    flow._profile.custom_pids = [existing_pid]
     flow._editing_pid_id = "test-pid-id"
 
     result = await flow.async_step_custom_pid_edit({"remove": True})
 
     assert result["type"] == "create_entry"
-    assert len(result["data"]["uops"]["custom_pids"]) == 0
+    assert len(result["data"]["profile"]["custom_pids"]) == 0

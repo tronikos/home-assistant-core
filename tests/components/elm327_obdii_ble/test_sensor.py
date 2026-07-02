@@ -1,16 +1,16 @@
-"""Tests for the Universal OBD BLE sensor platform."""
+"""Tests for the ELM327 OBD-II BLE sensor platform."""
 
 from unittest.mock import MagicMock
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
-from homeassistant.components.universal_obd_ble.sensor import (
-    UniversalObdCustomSensor,
-    UniversalObdStandardSensor,
-)
-from homeassistant.components.universal_obd_ble.uops import (
+from homeassistant.components.elm327_obdii_ble.elm327_obdii import (
     CustomPid,
     format_sensor_value,
 )
+from homeassistant.components.elm327_obdii_ble.sensor import (
+    Elm327ObdiiCustomSensor,
+    Elm327ObdiiStandardSensor,
+)
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.core import HomeAssistant
 
 
@@ -53,7 +53,7 @@ def test_format_sensor_value_empty_list() -> None:
 def test_standard_sensor_initialization(
     hass: HomeAssistant, mock_config_entry: MagicMock
 ) -> None:
-    """Test that UniversalObdStandardSensor initializes correctly."""
+    """Test that Elm327ObdiiStandardSensor initializes correctly."""
     coordinator = MagicMock()
     command = MagicMock()
     command.name = "ENGINE_SPEED"
@@ -61,7 +61,7 @@ def test_standard_sensor_initialization(
     command.pid = "0C"
     command.units = "rpm"
 
-    sensor = UniversalObdStandardSensor(
+    sensor = Elm327ObdiiStandardSensor(
         coordinator, mock_config_entry, "ENGINE_SPEED", command
     )
 
@@ -75,7 +75,7 @@ def test_standard_sensor_initialization(
 def test_custom_sensor_initialization(
     hass: HomeAssistant, mock_config_entry: MagicMock
 ) -> None:
-    """Test that UniversalObdCustomSensor initializes correctly."""
+    """Test that Elm327ObdiiCustomSensor initializes correctly."""
     coordinator = MagicMock()
     pid = CustomPid(
         id="test-pid",
@@ -90,7 +90,7 @@ def test_custom_sensor_initialization(
         max_value=100,
     )
 
-    sensor = UniversalObdCustomSensor(coordinator, mock_config_entry, pid)
+    sensor = Elm327ObdiiCustomSensor(coordinator, mock_config_entry, pid)
 
     assert sensor._pid == pid
     assert sensor._attr_name == "Battery SOC"
@@ -114,7 +114,7 @@ def test_custom_sensor_voltage_override(
         device_class="battery",
     )
 
-    sensor = UniversalObdCustomSensor(coordinator, mock_config_entry, pid)
+    sensor = Elm327ObdiiCustomSensor(coordinator, mock_config_entry, pid)
 
     assert sensor._attr_device_class == SensorDeviceClass.VOLTAGE
 
@@ -134,7 +134,7 @@ def test_custom_sensor_native_value(
         formula="B(4) / 2.55",
     )
 
-    sensor = UniversalObdCustomSensor(coordinator, mock_config_entry, pid)
+    sensor = Elm327ObdiiCustomSensor(coordinator, mock_config_entry, pid)
     sensor.coordinator = coordinator
 
     assert sensor.native_value == 75.5
@@ -155,7 +155,7 @@ def test_custom_sensor_native_value_none(
         formula="B(4) / 2.55",
     )
 
-    sensor = UniversalObdCustomSensor(coordinator, mock_config_entry, pid)
+    sensor = Elm327ObdiiCustomSensor(coordinator, mock_config_entry, pid)
     sensor.coordinator = coordinator
 
     assert sensor.native_value is None
@@ -175,6 +175,6 @@ def test_custom_sensor_odometer_state_class(
         unit="km",
     )
 
-    sensor = UniversalObdCustomSensor(coordinator, mock_config_entry, pid)
+    sensor = Elm327ObdiiCustomSensor(coordinator, mock_config_entry, pid)
 
     assert sensor._attr_state_class == SensorStateClass.TOTAL_INCREASING

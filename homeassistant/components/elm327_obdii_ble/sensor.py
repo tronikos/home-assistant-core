@@ -1,4 +1,4 @@
-"""Sensor platform for Universal OBD BLE."""
+"""Sensor platform for the ELM327 OBD-II BLE integration."""
 
 import logging
 from typing import TYPE_CHECKING, Any, Final
@@ -14,12 +14,11 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import slugify
 
-from .const import CONF_UOPS
-from .coordinator import UniversalObdCoordinator
-from .entity import UniversalObdEntity
-from .uops import (
+from .const import CONF_PROFILE
+from .coordinator import Elm327ObdiiCoordinator
+from .elm327_obdii import (
     CustomPid,
-    UopsConfig,
+    ProfileConfig,
     format_sensor_value,
     get_list_of_units,
     get_standard_command,
@@ -27,9 +26,10 @@ from .uops import (
     propose_icon,
     propose_state_class,
 )
+from .entity import Elm327ObdiiEntity
 
 if TYPE_CHECKING:
-    from . import UniversalObdConfigEntry
+    from . import Elm327ObdiiConfigEntry
 
 PARALLEL_UPDATES: Final[int] = 0
 
@@ -58,16 +58,16 @@ _STATE_CLASS_MAP: dict[str, SensorStateClass] = {
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: UniversalObdConfigEntry,
+    entry: Elm327ObdiiConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Instantiate sensors from UOPS and clean up orphans."""
+    """Instantiate sensors from the stored profile and clean up orphans."""
     coordinator = entry.runtime_data
 
-    uops = UopsConfig.from_dict(entry.options.get(CONF_UOPS, {}))
+    profile = ProfileConfig.from_dict(entry.options.get(CONF_PROFILE, {}))
 
-    active_standard_keys = {slugify(name) for name in uops.standard_pids}
-    active_custom_ids = {pid.id for pid in uops.custom_pids}
+    active_standard_keys = {slugify(name) for name in profile.standard_pids}
+    active_custom_ids = {pid.id for pid in profile.custom_pids}
 
     ent_reg = er.async_get(hass)
     existing_entries = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
@@ -94,29 +94,29 @@ async def async_setup_entry(
 
     entities: list[SensorEntity] = []
 
-    for name in uops.standard_pids:
+    for name in profile.standard_pids:
         command = get_standard_command(name)
         if command is None:
             _LOGGER.warning(
                 "Standard PID %s not in obdii registry - skipping entity", name
             )
             continue
-        entities.append(UniversalObdStandardSensor(coordinator, entry, name, command))
+        entities.append(Elm327ObdiiStandardSensor(coordinator, entry, name, command))
 
     entities.extend(
-        UniversalObdCustomSensor(coordinator, entry, pid) for pid in uops.custom_pids
+        Elm327ObdiiCustomSensor(coordinator, entry, pid) for pid in profile.custom_pids
     )
 
     async_add_entities(entities)
 
 
-class UniversalObdStandardSensor(UniversalObdEntity, SensorEntity):
+class Elm327ObdiiStandardSensor(Elm327ObdiiEntity, SensorEntity):
     """Sensor for a standard Mode 01 PID."""
 
     def __init__(
         self,
-        coordinator: UniversalObdCoordinator,
-        config_entry: UniversalObdConfigEntry,
+        coordinator: Elm327ObdiiCoordinator,
+        config_entry: Elm327ObdiiConfigEntry,
         command_name: str,
         command: Any,
     ) -> None:
@@ -133,7 +133,7 @@ class UniversalObdStandardSensor(UniversalObdEntity, SensorEntity):
         dc_name = propose_device_class(command)
         self._attr_device_class = _DEVICE_CLASS_MAP.get(dc_name) if dc_name else None
 
-        # Only set a custom icon when no device_class is available —
+        # Only set a custom icon when no device_class is available -
         # HA auto-applies the correct icon based on device_class.
         if self._attr_device_class is None:
             self._attr_icon = propose_icon(command) or "mdi:car"
@@ -151,13 +151,13 @@ class UniversalObdStandardSensor(UniversalObdEntity, SensorEntity):
         return format_sensor_value(value)
 
 
-class UniversalObdCustomSensor(UniversalObdEntity, SensorEntity):
+class Elm327ObdiiCustomSensor(Elm327ObdiiEntity, SensorEntity):
     """Sensor for a custom PID."""
 
     def __init__(
         self,
-        coordinator: UniversalObdCoordinator,
-        config_entry: UniversalObdConfigEntry,
+        coordinator: Elm327ObdiiCoordinator,
+        config_entry: Elm327ObdiiConfigEntry,
         pid: CustomPid,
     ) -> None:
         """Initialize the custom sensor."""

@@ -1,4 +1,4 @@
-"""Tests for the Universal OBD BLE binary sensor platform."""
+"""Tests for the ELM327 OBD-II BLE binary sensor platform."""
 
 from unittest.mock import MagicMock
 
@@ -6,8 +6,8 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntityDescription,
 )
-from homeassistant.components.universal_obd_ble.binary_sensor import (
-    UniversalObdBleBinarySensor,
+from homeassistant.components.elm327_obdii_ble.binary_sensor import (
+    Elm327ObdiiBinarySensor,
 )
 from homeassistant.const import EntityCategory
 
@@ -27,7 +27,7 @@ def test_binary_sensor_ble_connected() -> None:
         entity_category=EntityCategory.DIAGNOSTIC,
     )
 
-    sensor = UniversalObdBleBinarySensor(
+    sensor = Elm327ObdiiBinarySensor(
         coordinator, config_entry, desc, lambda: coordinator.ble_connected
     )
 
@@ -51,7 +51,7 @@ def test_binary_sensor_car_connected() -> None:
         entity_category=EntityCategory.DIAGNOSTIC,
     )
 
-    sensor = UniversalObdBleBinarySensor(
+    sensor = Elm327ObdiiBinarySensor(
         coordinator, config_entry, desc, lambda: coordinator.car_connected
     )
 

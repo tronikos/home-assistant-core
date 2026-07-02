@@ -194,6 +194,7 @@ homeassistant.components.electrasmart.*
 homeassistant.components.electric_kiwi.*
 homeassistant.components.elgato.*
 homeassistant.components.elkm1.*
+homeassistant.components.elm327_obdii_ble.*
 homeassistant.components.emulated_hue.*
 homeassistant.components.energenie_power_sockets.*
 homeassistant.components.energieleser.*
@@ -623,7 +624,6 @@ homeassistant.components.twentemilieu.*
 homeassistant.components.unifi.*
 homeassistant.components.unifi_access.*
 homeassistant.components.unifiprotect.*
-homeassistant.components.universal_obd_ble.*
 homeassistant.components.upcloud.*
 homeassistant.components.update.*
 homeassistant.components.uptime.*

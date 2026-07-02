@@ -1,4 +1,4 @@
-"""Diagnostic binary sensors for Universal OBD BLE."""
+"""Diagnostic binary sensors for the ELM327 OBD-II BLE integration."""
 
 from collections.abc import Callable
 import logging
@@ -13,11 +13,11 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import UniversalObdCoordinator
-from .entity import UniversalObdEntity
+from .coordinator import Elm327ObdiiCoordinator
+from .entity import Elm327ObdiiEntity
 
 if TYPE_CHECKING:
-    from . import UniversalObdConfigEntry
+    from . import Elm327ObdiiConfigEntry
 
 PARALLEL_UPDATES: Final[int] = 0
 
@@ -26,14 +26,14 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: UniversalObdConfigEntry,
+    entry: Elm327ObdiiConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the binary sensor platform."""
     coordinator = entry.runtime_data
 
     entities = [
-        UniversalObdBleBinarySensor(
+        Elm327ObdiiBinarySensor(
             coordinator,
             entry,
             BinarySensorEntityDescription(
@@ -44,7 +44,7 @@ async def async_setup_entry(
             ),
             lambda: coordinator.ble_connected,
         ),
-        UniversalObdBleBinarySensor(
+        Elm327ObdiiBinarySensor(
             coordinator,
             entry,
             BinarySensorEntityDescription(
@@ -60,13 +60,13 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class UniversalObdBleBinarySensor(UniversalObdEntity, BinarySensorEntity):
+class Elm327ObdiiBinarySensor(Elm327ObdiiEntity, BinarySensorEntity):
     """Diagnostic binary sensor backed by a coordinator property callable."""
 
     def __init__(
         self,
-        coordinator: UniversalObdCoordinator,
-        config_entry: UniversalObdConfigEntry,
+        coordinator: Elm327ObdiiCoordinator,
+        config_entry: Elm327ObdiiConfigEntry,
         description: BinarySensorEntityDescription,
         is_on_fn: Callable[[], bool],
     ) -> None:

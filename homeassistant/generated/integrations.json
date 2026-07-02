@@ -1758,6 +1758,12 @@
       "config_flow": true,
       "iot_class": "local_push"
     },
+    "elm327_obdii_ble": {
+      "name": "ELM327 OBD-II BLE",
+      "integration_type": "device",
+      "config_flow": true,
+      "iot_class": "local_polling"
+    },
     "elmax": {
       "name": "Elmax",
       "integration_type": "hub",
@@ -7822,12 +7828,6 @@
       "integration_type": "hub",
       "config_flow": false,
       "iot_class": "calculated"
-    },
-    "universal_obd_ble": {
-      "name": "Universal OBD BLE",
-      "integration_type": "device",
-      "config_flow": true,
-      "iot_class": "local_polling"
     },
     "upb": {
       "name": "Universal Powerline Bus (UPB)",

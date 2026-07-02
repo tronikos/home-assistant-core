@@ -1,7 +1,7 @@
 """WiCAN vehicle profile importer.
 
 Translates the upstream WiCAN JSON schema (used by the meatpiHQ/wican-fw
-project) into our internal UopsConfig.
+project) into our internal ProfileConfig.
 
 The WiCAN schema has this shape:
 
@@ -47,7 +47,7 @@ from typing import Any
 
 from obdii import commands
 
-from ..schema import CustomPid, UopsConfig
+from ..schema import CustomPid, ProfileConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,8 +63,8 @@ _WICAN_AT_CMD_RE: re.Pattern[str] = re.compile(
 )
 
 
-def import_wican_profile(raw: dict[str, Any]) -> UopsConfig:
-    """Translate a WiCAN profile dict into a UopsConfig.
+def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
+    """Translate a WiCAN profile dict into a ProfileConfig.
 
     Never raises on a single bad PID - skips it and continues, so one
     malformed entry doesn't lose the whole profile. Raises TypeError
@@ -80,7 +80,7 @@ def import_wican_profile(raw: dict[str, Any]) -> UopsConfig:
     # Optional profile-level init (e.g. ATSP6;ATST96;) - applied to
     # every PID in the profile. We merge it into each PID's
     # `init_extra` (deduplicated) so the scheduler groups correctly.
-    # A future improvement could hoist it onto UopsConfig itself if
+    # A future improvement could hoist it onto ProfileConfig itself if
     # needed.
     profile_init = (raw.get("init") or "").strip()
 
@@ -136,7 +136,7 @@ def import_wican_profile(raw: dict[str, Any]) -> UopsConfig:
                 "Skipping malformed WiCAN PID block in profile %r: %s", car_model, err
             )
 
-    return UopsConfig(
+    return ProfileConfig(
         standard_pids=sorted(standard),
         custom_pids=custom,
     )
@@ -154,8 +154,8 @@ class WicanImporter:
         """Return True if `raw` looks like a WiCAN profile dict."""
         return isinstance(raw, dict) and ("pids" in raw or "car_model" in raw)
 
-    def import_profile(self, raw: object) -> UopsConfig:
-        """Translate a WiCAN profile dict into a UopsConfig."""
+    def import_profile(self, raw: object) -> ProfileConfig:
+        """Translate a WiCAN profile dict into a ProfileConfig."""
         if not isinstance(raw, dict):
             raise TypeError(f"WiCAN profile must be a dict, got {type(raw).__name__}")
         return import_wican_profile(raw)

@@ -1,4 +1,4 @@
-"""Polling coordinator for Universal OBD BLE."""
+"""Polling coordinator for the ELM327 OBD-II BLE integration."""
 
 import contextlib
 from datetime import timedelta
@@ -23,8 +23,8 @@ from .const import (
     CONF_ATRV_SUPPORTED,
     CONF_FAST_POLL,
     CONF_GRACE_PERIOD,
+    CONF_PROFILE,
     CONF_SLOW_POLL,
-    CONF_UOPS,
     CONF_UUID_READ,
     CONF_UUID_WRITE,
     CONF_VOLTAGE_CHECK,
@@ -41,29 +41,29 @@ from .const import (
     DEFAULT_XS_POLL,
     DOMAIN,
 )
-from .uops import (
+from .elm327_obdii import (
     CanContext,
     PollingState,
+    ProfileConfig,
     QueryItem,
-    UopsConfig,
     build_query_plan_from_uops,
     check_voltage,
     create_connection,
     run_query_plan,
     scan_supported_pids,
 )
-from .uops.transport_ble import TransportError
+from .elm327_obdii.transport_ble import TransportError
 
 if TYPE_CHECKING:
-    from . import UniversalObdConfigEntry
+    from . import Elm327ObdiiConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class UniversalObdCoordinator(DataUpdateCoordinator):
+class Elm327ObdiiCoordinator(DataUpdateCoordinator):
     """Local data coordinator that runs a pre-built UOPS query plan."""
 
-    def __init__(self, hass: HomeAssistant, entry: UniversalObdConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant, entry: Elm327ObdiiConfigEntry) -> None:
         """Initialize coordinator state machine."""
         super().__init__(
             hass, _LOGGER, name=DOMAIN, update_interval=timedelta(seconds=5)
@@ -89,7 +89,7 @@ class UniversalObdCoordinator(DataUpdateCoordinator):
         self.last_rediscovery_attempt: float = 0.0
         self._offline_since: float | None = None
 
-        uops = UopsConfig.from_dict(self.entry.options.get(CONF_UOPS, {}))
+        uops = ProfileConfig.from_dict(self.entry.options.get(CONF_PROFILE, {}))
         self._query_plan = build_query_plan_from_uops(uops)
 
         self._lock = threading.Lock()
