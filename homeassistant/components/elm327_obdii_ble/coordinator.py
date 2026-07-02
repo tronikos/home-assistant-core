@@ -26,22 +26,17 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import (
     CONF_ATRV_SUPPORTED,
-    CONF_FAST_POLL,
     CONF_GRACE_PERIOD,
     CONF_PROFILE,
-    CONF_SLOW_POLL,
     CONF_UUID_READ,
     CONF_UUID_WRITE,
     CONF_VOLTAGE_CHECK,
     CONF_VOLTAGE_OFF,
     CONF_VOLTAGE_ON,
-    CONF_XS_POLL,
-    DEFAULT_FAST_POLL,
-    DEFAULT_SLOW_POLL,
-    DEFAULT_UUID_READ,
-    DEFAULT_UUID_WRITE,
-    DEFAULT_XS_POLL,
     DOMAIN,
+    FAST_POLL_SECONDS,
+    OUT_OF_RANGE_POLL_SECONDS,
+    SLOW_POLL_SECONDS,
 )
 from .elm327_obdii import (
     Poller,
@@ -67,14 +62,14 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=DEFAULT_FAST_POLL),
+            update_interval=timedelta(seconds=FAST_POLL_SECONDS),
         )
         self.entry = entry
         self._poller = Poller(self._build_poller_config(entry))
         # Lock-free flag read by the event loop (binary_sensor platform).
         # Updated only from the executor thread (inside _async_update_data's
         # executor dispatch) and from disconnect(). Staleness can extend up
-        # to slow_poll (300s) when the adapter goes out of range.
+        # to SLOW_POLL_SECONDS (300s) when the adapter goes out of range.
         self._ble_connected = False
         # Two separate debounce timestamps - one for poll-cycle connection
         # attempts, one for BLE re-discovery callback. Sharing a single
@@ -148,14 +143,8 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _connect(self, ble_dev: BLEDevice) -> bool:
         """Executor-thread helper: open the BLE connection if not already."""
-        uuid_write = self.entry.options.get(
-            CONF_UUID_WRITE,
-            self.entry.data.get(CONF_UUID_WRITE, DEFAULT_UUID_WRITE),
-        )
-        uuid_read = self.entry.options.get(
-            CONF_UUID_READ,
-            self.entry.data.get(CONF_UUID_READ, DEFAULT_UUID_READ),
-        )
+        uuid_write = self.entry.data[CONF_UUID_WRITE]
+        uuid_read = self.entry.data[CONF_UUID_READ]
         ok = self._poller.connect(ble_dev, self.hass.loop, uuid_write, uuid_read)
         self._ble_connected = ok or self._poller.is_connected
         return ok
@@ -167,9 +156,7 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._offline_since is None:
                 self._offline_since = time.monotonic()
             if time.monotonic() - self._offline_since > 60:
-                self.update_interval = timedelta(
-                    seconds=self.entry.options.get(CONF_XS_POLL, DEFAULT_XS_POLL)
-                )
+                self.update_interval = timedelta(seconds=OUT_OF_RANGE_POLL_SECONDS)
             raise UpdateFailed(
                 translation_domain=DOMAIN, translation_key="device_out_of_range"
             )
@@ -222,16 +209,10 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _update_interval_for(self, state: PollingState) -> None:
         """Map the polling state to the matching ``update_interval``."""
         if state == PollingState.CAR_OFF:
-            self.update_interval = timedelta(
-                seconds=self.entry.options.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL)
-            )
+            self.update_interval = timedelta(seconds=SLOW_POLL_SECONDS)
         elif state == PollingState.OUT_OF_RANGE:
-            self.update_interval = timedelta(
-                seconds=self.entry.options.get(CONF_XS_POLL, DEFAULT_XS_POLL)
-            )
+            self.update_interval = timedelta(seconds=OUT_OF_RANGE_POLL_SECONDS)
         else:
             # CAR_ON or GRACE_PERIOD - poll fast to catch transient
             # state changes and the next voltage dip.
-            self.update_interval = timedelta(
-                seconds=self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
-            )
+            self.update_interval = timedelta(seconds=FAST_POLL_SECONDS)

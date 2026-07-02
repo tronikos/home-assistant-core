@@ -23,24 +23,18 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
     CONF_ATRV_SUPPORTED,
-    CONF_FAST_POLL,
     CONF_GRACE_PERIOD,
     CONF_PROFILE,
-    CONF_SLOW_POLL,
     CONF_UUID_READ,
     CONF_UUID_WRITE,
     CONF_VOLTAGE_CHECK,
     CONF_VOLTAGE_OFF,
     CONF_VOLTAGE_ON,
-    CONF_XS_POLL,
-    DEFAULT_FAST_POLL,
     DEFAULT_GRACE_PERIOD,
-    DEFAULT_SLOW_POLL,
     DEFAULT_UUID_READ,
     DEFAULT_UUID_WRITE,
     DEFAULT_VOLTAGE_OFF,
     DEFAULT_VOLTAGE_ON,
-    DEFAULT_XS_POLL,
     DOMAIN,
 )
 from .elm327_obdii import (
@@ -455,7 +449,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _async_create_entry(
         self, profile: ProfileConfig
     ) -> config_entries.ConfigFlowResult:
-        """Create the config entry with device data + profile options + polling defaults."""
+        """Create the config entry with device data + profile + battery defaults."""
         return self.async_create_entry(
             title=self._title,
             data={
@@ -467,9 +461,6 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             options={
                 CONF_PROFILE: profile.to_dict(),
                 CONF_VOLTAGE_CHECK: True,
-                CONF_FAST_POLL: DEFAULT_FAST_POLL,
-                CONF_SLOW_POLL: DEFAULT_SLOW_POLL,
-                CONF_XS_POLL: DEFAULT_XS_POLL,
                 CONF_VOLTAGE_ON: DEFAULT_VOLTAGE_ON,
                 CONF_VOLTAGE_OFF: DEFAULT_VOLTAGE_OFF,
                 CONF_GRACE_PERIOD: DEFAULT_GRACE_PERIOD,
@@ -492,7 +483,7 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
         """Initialize options flow state."""
         super().__init__()
         self._options = dict(config_entry.options)
-        self._profile = ProfileConfig.from_dict(self._options.get(CONF_PROFILE, {}))
+        self._profile = ProfileConfig.from_dict(self._options[CONF_PROFILE])
         self._editing_pid_id: str | None = None
 
     async def async_step_init(
@@ -501,20 +492,17 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
         """Show the main options menu."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["polling", "standard_pids", "custom_pids"],
+            menu_options=["battery", "standard_pids", "custom_pids"],
         )
 
-    async def async_step_polling(
+    async def async_step_battery(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Polling intervals + voltage thresholds."""
+        """Configure the 12V auxiliary battery guard."""
         if user_input is not None:
             self._options.update(
                 {
                     CONF_VOLTAGE_CHECK: user_input[CONF_VOLTAGE_CHECK],
-                    CONF_FAST_POLL: user_input[CONF_FAST_POLL],
-                    CONF_SLOW_POLL: user_input[CONF_SLOW_POLL],
-                    CONF_XS_POLL: user_input[CONF_XS_POLL],
                     CONF_VOLTAGE_ON: user_input[CONF_VOLTAGE_ON],
                     CONF_VOLTAGE_OFF: user_input[CONF_VOLTAGE_OFF],
                     CONF_GRACE_PERIOD: user_input[CONF_GRACE_PERIOD],
@@ -523,40 +511,16 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
             return self._async_save_options()
 
         return self.async_show_form(
-            step_id="polling",
+            step_id="battery",
             data_schema=vol.Schema(
                 {
                     vol.Required(
                         CONF_VOLTAGE_CHECK,
-                        default=self._options.get(CONF_VOLTAGE_CHECK, True),
+                        default=self._options[CONF_VOLTAGE_CHECK],
                     ): selector.BooleanSelector(),
                     vol.Required(
-                        CONF_FAST_POLL,
-                        default=self._options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL),
-                    ): selector.NumberSelector(
-                        selector.NumberSelectorConfig(
-                            min=1, max=3600, step=1, unit_of_measurement="s"
-                        )
-                    ),
-                    vol.Required(
-                        CONF_SLOW_POLL,
-                        default=self._options.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL),
-                    ): selector.NumberSelector(
-                        selector.NumberSelectorConfig(
-                            min=10, max=3600, step=1, unit_of_measurement="s"
-                        )
-                    ),
-                    vol.Required(
-                        CONF_XS_POLL,
-                        default=self._options.get(CONF_XS_POLL, DEFAULT_XS_POLL),
-                    ): selector.NumberSelector(
-                        selector.NumberSelectorConfig(
-                            min=60, max=86400, step=1, unit_of_measurement="s"
-                        )
-                    ),
-                    vol.Required(
                         CONF_VOLTAGE_ON,
-                        default=self._options.get(CONF_VOLTAGE_ON, DEFAULT_VOLTAGE_ON),
+                        default=self._options[CONF_VOLTAGE_ON],
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=10.0, max=15.0, step=0.1, unit_of_measurement="V"
@@ -564,9 +528,7 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                     ),
                     vol.Required(
                         CONF_VOLTAGE_OFF,
-                        default=self._options.get(
-                            CONF_VOLTAGE_OFF, DEFAULT_VOLTAGE_OFF
-                        ),
+                        default=self._options[CONF_VOLTAGE_OFF],
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=10.0, max=15.0, step=0.1, unit_of_measurement="V"
@@ -574,9 +536,7 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                     ),
                     vol.Required(
                         CONF_GRACE_PERIOD,
-                        default=self._options.get(
-                            CONF_GRACE_PERIOD, DEFAULT_GRACE_PERIOD
-                        ),
+                        default=self._options[CONF_GRACE_PERIOD],
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=0, max=600, step=1, unit_of_measurement="s"

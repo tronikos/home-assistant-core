@@ -64,7 +64,7 @@ async def async_setup_entry(
     """Instantiate sensors from the stored profile and clean up orphans."""
     coordinator = entry.runtime_data
 
-    profile = ProfileConfig.from_dict(entry.options.get(CONF_PROFILE, {}))
+    profile = ProfileConfig.from_dict(entry.options[CONF_PROFILE])
 
     active_standard_keys = {slugify(name) for name in profile.standard_pids}
     active_custom_ids = {pid.id for pid in profile.custom_pids}

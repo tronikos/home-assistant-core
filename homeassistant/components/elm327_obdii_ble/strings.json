@@ -85,6 +85,16 @@
       "invalid_hex": "Mode, query, CAN header, and CAN filter must be hexadecimal digits only (e.g. mode '22', query '028C1', header '7E5', filter '7ED'). Leave header/filter blank if not needed."
     },
     "step": {
+      "battery": {
+        "data": {
+          "voltage_check": "Query battery voltage via AT RV (enables ignition-on/off detection)",
+          "voltage_grace_seconds": "Post-shutdown grace period (seconds)",
+          "voltage_off_threshold": "Ignition off threshold (V)",
+          "voltage_on_threshold": "Ignition on threshold (V)"
+        },
+        "description": "Configure ignition voltage thresholds to protect your vehicle's 12V auxiliary battery. Polling intervals are fixed and adapt automatically to the vehicle's state (running / off / out of range).",
+        "title": "Battery Protection"
+      },
       "custom_pid_edit": {
         "data": {
           "can_filter": "CAN receive filter (ATCRA target, e.g. 7ED)",
@@ -115,24 +125,11 @@
       "init": {
         "description": "Select which subsystem of your OBD-II integration you want to adjust.",
         "menu_options": {
+          "battery": "Configure battery guard thresholds",
           "custom_pids": "Add, edit, or delete custom (proprietary) PIDs",
-          "polling": "Configure polling intervals & battery guard thresholds",
           "standard_pids": "Select which standard OBD-II PIDs to poll"
         },
         "title": "OBD-II Configuration Menu"
-      },
-      "polling": {
-        "data": {
-          "fast_poll": "Active polling interval (seconds)",
-          "slow_poll": "Idle polling interval (seconds)",
-          "voltage_check": "Query battery voltage via AT RV (enables ignition-on/off detection)",
-          "voltage_grace_seconds": "Post-shutdown grace period (seconds)",
-          "voltage_off_threshold": "Ignition off threshold (V)",
-          "voltage_on_threshold": "Ignition on threshold (V)",
-          "xs_poll": "Out-of-range connection sweep (seconds)"
-        },
-        "description": "Adjust polling frequencies and ignition voltage thresholds to protect your vehicle's 12V auxiliary battery.",
-        "title": "Polling & Battery Protection"
       },
       "standard_pids": {
         "data": {
