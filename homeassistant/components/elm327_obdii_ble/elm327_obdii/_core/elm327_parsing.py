@@ -96,6 +96,9 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
             # (no payload bytes to parse) rather than mis-parsed as 11-bit.
             if len(parts) == 1 and len(line) > 3:
                 token = parts[0]
+                _LOGGER.debug(
+                    "Contiguous-hex fallback (AT S0) fired for frame: %r", token
+                )
                 if len(token) >= 8 and token[:2].upper() == "18":
                     header_len = 8
                 else:

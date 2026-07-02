@@ -19,6 +19,7 @@ from bleak.exc import BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from obdii import Command, Connection, Mode
 
+from ._core.elm327_parsing import extract_voltage
 from ._core.standard_pids import scan_supported_pids
 from .transport_ble import TransportBLE, TransportError
 
@@ -30,9 +31,9 @@ class ConnectionTestResult:
     """Result of probing a BLE OBD-II adapter.
 
     ``success`` is None if the connection itself failed; True/False if
-    the connection worked and AT RV returned a plausible voltage vs
-    ``"?"``. ``scanned_supported`` is the list of supported Mode 01 PID
-    names if the scan succeeded, else None.
+    the connection worked and AT RV returned a parseable voltage vs an
+    unparsable response. ``scanned_supported`` is the list of supported
+    Mode 01 PID names if the scan succeeded, else None.
     """
 
     success: bool | None
@@ -85,7 +86,7 @@ def probe_adapter(
             with contextlib.suppress(BleakError, OSError, TransportError):
                 conn.close()
 
-    success = resp is not None and b"?" not in resp.raw
+    success = resp is not None and extract_voltage(resp.raw) is not None
     return ConnectionTestResult(success, final_write, final_read, scanned)
 
 

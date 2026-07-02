@@ -91,19 +91,6 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         )
 
     @property
-    def car_connected(self) -> bool:
-        """True if the vehicle is in CAR_ON or GRACE_PERIOD state.
-
-        GRACE_PERIOD counts as connected because the vehicle's ECU may
-        still respond to queries during the brief voltage dip that
-        triggers the grace window (e.g. during engine crank).
-        """
-        return self.available and self._last_state in (
-            PollingState.CAR_ON,
-            PollingState.GRACE_PERIOD,
-        )
-
-    @property
     def polling_state(self) -> PollingState:
         """Last known vehicle polling state."""
         return self._last_state
@@ -125,7 +112,7 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         out of range or cannot connect.
         """
         ble_device = self._ble_device or async_ble_device_from_address(
-            self.hass, self.address, True
+            self.hass, self.address.upper(), True
         )
         if ble_device is None:
             raise UpdateFailed(
@@ -158,7 +145,7 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
             )
             and bool(
                 async_ble_device_from_address(
-                    self.hass, service_info.device.address, connectable=True
+                    self.hass, service_info.device.address.upper(), connectable=True
                 )
             )
         )
@@ -188,7 +175,9 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
     ) -> None:
         """Device hasn't advertised in 5 minutes — force state to OUT_OF_RANGE."""
         self._last_state = PollingState.OUT_OF_RANGE
-        self._poller.disconnect()
+        # Poller.disconnect() closes the BleakClient synchronously and may
+        # block on the executor thread; never call it from the event loop.
+        self.hass.async_add_executor_job(self._poller.disconnect)
         super()._async_handle_unavailable(service_info)
 
     async def _async_update(

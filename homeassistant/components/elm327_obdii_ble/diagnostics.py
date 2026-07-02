@@ -8,9 +8,19 @@ from homeassistant.core import HomeAssistant
 
 if TYPE_CHECKING:
     from . import Elm327ObdiiConfigEntry
+    from .coordinator import Elm327ObdiiCoordinator
 
 ENTRY_TO_REDACT = frozenset({"address", "uuid_read", "uuid_write"})
 SERVICE_INFO_TO_REDACT = frozenset({"address", "name", "source", "device"})
+
+
+def _coordinator_diagnostics(coordinator: Elm327ObdiiCoordinator) -> dict[str, Any]:
+    """Snapshot coordinator state for diagnostics."""
+    return {
+        "polling_state": coordinator.polling_state.value,
+        "voltage": coordinator.voltage,
+        "data": coordinator.data,
+    }
 
 
 async def async_get_config_entry_diagnostics(
@@ -27,4 +37,5 @@ async def async_get_config_entry_diagnostics(
             service_info.as_dict() if service_info else None,
             SERVICE_INFO_TO_REDACT,
         ),
+        "coordinator": _coordinator_diagnostics(coordinator),
     }

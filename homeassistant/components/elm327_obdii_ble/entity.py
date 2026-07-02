@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from homeassistant.components.bluetooth.passive_update_coordinator import (
     PassiveBluetoothCoordinatorEntity,
 )
-from homeassistant.const import ATTR_CONNECTIONS
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 
@@ -41,15 +40,14 @@ class Elm327ObdiiEntity(PassiveBluetoothCoordinatorEntity[Elm327ObdiiCoordinator
         # Both are normalized to format_mac here for the device registry.
         address = format_mac(coordinator.address)
         self._attr_device_info = DeviceInfo(
-            connections={(dr.CONNECTION_BLUETOOTH, address)},
+            connections={
+                (dr.CONNECTION_BLUETOOTH, address),
+                (dr.CONNECTION_NETWORK_MAC, address),
+            },
             name=config_entry.title,
             manufacturer="ELM327",
             model="OBD-II BLE Adapter",
         )
-        if ":" in address:
-            self._attr_device_info[ATTR_CONNECTIONS].add(
-                (dr.CONNECTION_NETWORK_MAC, address)
-            )
 
     @property
     def available(self) -> bool:

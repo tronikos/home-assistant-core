@@ -136,7 +136,7 @@ class Elm327ObdiiStandardSensor(Elm327ObdiiEntity, SensorEntity):
         super().__init__(coordinator, config_entry)
         self._command_name = command_name
         self._command = command
-        self._attr_name = " ".join(command.name.replace("_", " ").split()).capitalize()
+        self._attr_name = " ".join(command.name.replace("_", " ").split()).title()
         self._attr_unique_id = f"{config_entry.unique_id}-std-{slugify(command.name)}"
 
         units = get_list_of_units(command)

@@ -101,8 +101,6 @@ class Poller:
         self._current_context: CanContext | None = None
         self._state: PollingState = PollingState.OUT_OF_RANGE
         self._grace_start: float | None = None
-        self._consecutive_failures = 0
-        self._last_successful_poll: float | None = None
         self._api: Connection | None = None
         self._lock = threading.Lock()
 
@@ -119,11 +117,6 @@ class Poller:
         thread's view by up to one poll cycle.
         """
         return self._api is not None and self._api.is_connected()
-
-    @property
-    def consecutive_failures(self) -> int:
-        """Number of consecutive failed poll cycles since the last success."""
-        return self._consecutive_failures
 
     def connect(
         self,
@@ -167,14 +160,14 @@ class Poller:
     def poll_once(self) -> PollResult:
         """Run one polling cycle. Caller must have connected first.
 
-        On transport failure, resets the connection, increments the
-        failure counter, and returns a :class:`PollResult` preserving
-        the previous state. Does NOT raise - the coordinator decides
-        whether to surface this as :class:`UpdateFailed`.
+        On transport failure, resets the connection and returns a
+        :class:`PollResult` preserving the previous state. Does NOT
+        raise - the coordinator decides whether to surface this as
+        :class:`UpdateFailed` (which keeps ``last_update_success``
+        accurate in the base coordinator).
         """
         with self._lock:
             if self._api is None or not self._api.is_connected():
-                self._consecutive_failures += 1
                 return PollResult(state=self._state)
 
             try:
@@ -187,10 +180,7 @@ class Poller:
                     data, any_success, self._current_context = _run_query_plan(
                         self._api, self._query_plan, self._current_context
                     )
-                    if any_success:
-                        self._last_successful_poll = monotonic_time_coarse()
 
-                self._consecutive_failures = 0
                 return PollResult(
                     state=new_state, data=data, any_success=any_success, voltage=voltage
                 )
@@ -209,7 +199,6 @@ class Poller:
                     self._api.close()
                 self._api = None
                 self._current_context = None
-                self._consecutive_failures += 1
                 return PollResult(state=self._state)
 
     def scan_supported_standard_pids(self) -> list[str]:

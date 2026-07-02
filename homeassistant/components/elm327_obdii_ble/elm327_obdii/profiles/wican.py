@@ -177,6 +177,11 @@ def _parse_pid_init(raw: str | None) -> tuple[str | None, str | None, str | None
     Example: ``'ATSH7E5;ATCRA7ED;' -> ('7E5', '7ED', None)``.
     Anything beyond ATSH/ATCRA goes into ``extra_init`` verbatim,
     semicolon-joined, so the scheduler can group on it as a real value.
+
+    ``AT H0`` (headers off) and ``AT S0`` (spaces off) are filtered out
+    with a warning: the dirty-array parser assumes headers are on and
+    prefers spaces-on framing, and forcing these from a user profile
+    breaks response parsing silently.
     """
     if not raw:
         return (None, None, None)
@@ -186,10 +191,18 @@ def _parse_pid_init(raw: str | None) -> tuple[str | None, str | None, str | None
     for match in _WICAN_AT_CMD_RE.finditer(raw):
         cmd = match.group(1).upper()
         arg = (match.group(2) or "").strip()
+        if cmd in ("H", "S") and arg == "0":
+            _LOGGER.warning(
+                "Filtering AT%s0 from pid_init (headers/spaces off break the "
+                "response parser): %r",
+                cmd,
+                raw,
+            )
+            continue
         if cmd == "SH" and arg:
-            header = arg
+            header = arg.upper()
         elif cmd == "CRA" and arg:
-            can_filter = arg
+            can_filter = arg.upper()
         else:
             extras.append(f"AT{cmd} {arg}".strip())
     return (header, can_filter, ";".join(extras) if extras else None)
@@ -199,7 +212,9 @@ def _merge_init_strings(a: str, b: str | None) -> str | None:
     """Merge two init strings, preserving order and dropping duplicates.
 
     Comparison is done on a whitespace-stripped, uppercased key so
-    ``'ATSP6'`` and ``'at sp 6'`` don't both survive.
+    ``'ATSP6'`` and ``'at sp 6'`` don't both survive. ``AT H0`` and
+    ``AT S0`` are dropped here too — they break the dirty-array parser
+    (see :func:`_parse_pid_init`).
     """
     parts_a = [p.strip() for p in a.split(";") if p.strip()]
     parts_b = [p.strip() for p in (b or "").split(";") if p.strip()]
@@ -207,6 +222,13 @@ def _merge_init_strings(a: str, b: str | None) -> str | None:
     merged: list[str] = []
     for p in parts_a + parts_b:
         key = re.sub(r"\s+", "", p).upper()
+        if key in ("ATH0", "ATS0"):
+            _LOGGER.warning(
+                "Filtering %s from init string (headers/spaces off break the "
+                "response parser)",
+                p,
+            )
+            continue
         if key in seen:
             continue
         seen.add(key)

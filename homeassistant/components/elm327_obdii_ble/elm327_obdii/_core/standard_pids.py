@@ -123,8 +123,6 @@ def propose_device_class(command: Command) -> str | None:
         return "battery"
     if "LEVEL" in name and units == "%":
         return "battery"
-    if units in ("%", "ratio"):
-        return "power_factor"
     if units == "l":
         return "volume"
     if units == "s":
