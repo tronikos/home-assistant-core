@@ -202,14 +202,16 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Reached only after async_step_user/bluetooth set self._address.
             assert self._address is not None
             ble_device = async_ble_device_from_address(self.hass, self._address, True)
-            if ble_device:
-                result = await self._test_connection(
-                    ble_device, self._uuid_write, self._uuid_read
-                )
-                self.atrv_supported = bool(result.success)
-                self._uuid_write = result.uuid_write
-                self._uuid_read = result.uuid_read
-                self._scanned_supported = result.scanned_supported
+            if ble_device is None:
+                return self.async_abort(reason="device_not_found")
+
+            result = await self._test_connection(
+                ble_device, self._uuid_write, self._uuid_read
+            )
+            self.atrv_supported = bool(result.success)
+            self._uuid_write = result.uuid_write
+            self._uuid_read = result.uuid_read
+            self._scanned_supported = result.scanned_supported
 
             return await self.async_step_vehicle()
 
@@ -498,7 +500,7 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
     async def async_step_battery(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Configure the 12V auxiliary battery guard."""
+        """Configure the 12V auxiliary battery guard (voltage check + thresholds)."""
         if user_input is not None:
             self._options.update(
                 {

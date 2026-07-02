@@ -57,9 +57,6 @@
     }
   },
   "exceptions": {
-    "adapter_not_connected_scan": {
-      "message": "Adapter disconnected during supported-PID scan"
-    },
     "adapter_out_of_range": {
       "message": "BLE adapter not in range - cannot scan supported PIDs"
     },

@@ -13,9 +13,5 @@
   "integration_type": "device",
   "iot_class": "local_polling",
   "quality_scale": "bronze",
-  "requirements": [
-    "py-obdii==0.10.3b0",
-    "bleak==3.0.2",
-    "bleak-retry-connector==4.7.0"
-  ]
+  "requirements": ["py-obdii==0.10.3b0"]
 }

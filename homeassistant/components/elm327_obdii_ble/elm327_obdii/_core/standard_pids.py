@@ -125,8 +125,6 @@ def propose_device_class(command: Command) -> str | None:
         return "battery"
     if units in ("%", "ratio"):
         return "power_factor"
-    if units in ("g/s", "kg/h"):
-        return "mass_flow"
     if units == "l":
         return "volume"
     if units == "s":
@@ -140,9 +138,13 @@ def propose_state_class(command: Command) -> str | None:
     """Heuristic StateClass suggestion - 'measurement' or 'total_increasing'.
 
     Odometer, runtime, and absolute-distance counters are monotonic
-    (total_increasing). Everything else is instantaneous (measurement).
+    (total_increasing). Non-numeric commands (DTCs, status, ID) return
+    None so the recorder doesn't try to store a state class. Everything
+    else is instantaneous (measurement).
     """
     name = (command.name or "").upper()
+    if "DTC" in name or "STATUS" in name or "ID" in name:
+        return None
     if "ODOMETER" in name or "DISTANCE" in name or "RUN_TIME" in name:
         return "total_increasing"
     return "measurement"

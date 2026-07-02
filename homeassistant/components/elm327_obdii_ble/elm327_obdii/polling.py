@@ -250,10 +250,11 @@ class Poller:
             )
             return PollingState.CAR_ON, None
 
-        # Hysteresis: the threshold for "engine started" (on_threshold) is
-        # higher than for "engine still running" (off_threshold), so a
-        # brief voltage dip during crank doesn't immediately drop us to
-        # CAR_OFF.
+        # Hysteresis: use the higher on_threshold to transition out of
+        # CAR_OFF, the lower off_threshold otherwise. On the first poll
+        # after init the state is OUT_OF_RANGE, so the lower threshold
+        # applies - a single dip below on_threshold won't keep us
+        # classified as out of range indefinitely.
         is_running = (
             voltage >= cfg.voltage_on
             if self._state == PollingState.CAR_OFF

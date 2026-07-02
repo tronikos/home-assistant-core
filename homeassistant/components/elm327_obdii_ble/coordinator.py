@@ -153,6 +153,7 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Periodic query trigger."""
         address = self.entry.data[CONF_ADDRESS]
         if not async_address_present(self.hass, address, connectable=True):
+            self._ble_connected = False
             if self._offline_since is None:
                 self._offline_since = time.monotonic()
             if time.monotonic() - self._offline_since > 60:

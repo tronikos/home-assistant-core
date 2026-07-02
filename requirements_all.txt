@@ -679,7 +679,6 @@ bleak-retry-connector==4.7.0
 bleak-smlight==1.1.0
 
 # homeassistant.components.bluetooth
-# homeassistant.components.elm327_obdii_ble
 bleak==3.0.2
 
 # homeassistant.components.blebox
