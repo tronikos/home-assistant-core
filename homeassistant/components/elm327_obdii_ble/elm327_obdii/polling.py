@@ -18,11 +18,11 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 import logging
 import threading
-import time
 from typing import Any
 
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
+from bluetooth_data_tools import monotonic_time_coarse
 from obdii import Command, Connection, Mode, Response
 from obdii.transports.transport_base import TransportBase
 
@@ -188,7 +188,7 @@ class Poller:
                         self._api, self._query_plan, self._current_context
                     )
                     if any_success:
-                        self._last_successful_poll = time.monotonic()
+                        self._last_successful_poll = monotonic_time_coarse()
 
                 self._consecutive_failures = 0
                 return PollResult(
@@ -269,9 +269,9 @@ class Poller:
             return PollingState.CAR_OFF, voltage
 
         if self._grace_start is None:
-            self._grace_start = time.monotonic()
+            self._grace_start = monotonic_time_coarse()
 
-        if time.monotonic() - self._grace_start > cfg.grace_seconds:
+        if monotonic_time_coarse() - self._grace_start > cfg.grace_seconds:
             return PollingState.CAR_OFF, voltage
 
         return PollingState.GRACE_PERIOD, voltage

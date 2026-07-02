@@ -1,6 +1,7 @@
 {
   "config": {
     "abort": {
+      "device_not_found": "The BLE device could not be found. It may have gone out of range or been powered off.",
       "no_characteristics_found": "Could not discover any Bluetooth characteristics on this device. Verify it is an OBD-II adapter.",
       "no_devices_found": "No unconfigured ELM327 BLE devices found. Ensure your adapter is powered and in range.",
       "wican_fetch_failed": "Could not fetch vehicle profiles from the WiCAN repository. Check your network connection and try again, or pick a built-in profile."
@@ -11,6 +12,9 @@
       "invalid_hex": "Mode and query must be hexadecimal digits only (e.g. mode '22', query '028C1')."
     },
     "step": {
+      "bluetooth_confirm": {
+        "description": "Discovered ELM327 OBD-II BLE adapter: {name}. Click Submit to probe the adapter and continue setup."
+      },
       "connection": {
         "data": {
           "uuid_read": "Read (RX) Characteristic UUID",
@@ -64,7 +68,7 @@
       "message": "Failed to connect for supported-PID scan"
     },
     "device_not_found": {
-      "message": "BLE device not found for address {address}"
+      "message": "BLE device not found for address {address}: {reason}"
     },
     "device_out_of_range": {
       "message": "BLE device out of range"

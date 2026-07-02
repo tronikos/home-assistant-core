@@ -10,14 +10,16 @@ orchestration to the library's :class:`Poller` façade.
 
 from datetime import timedelta
 import logging
-import time
 from typing import TYPE_CHECKING, Any
 
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
+from bluetooth_data_tools import monotonic_time_coarse
 
 from homeassistant.components.bluetooth import (
+    BluetoothReachabilityIntent,
     async_address_present,
+    async_address_reachability_diagnostics,
     async_ble_device_from_address,
 )
 from homeassistant.const import CONF_ADDRESS
@@ -155,8 +157,8 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not async_address_present(self.hass, address, connectable=True):
             self._ble_connected = False
             if self._offline_since is None:
-                self._offline_since = time.monotonic()
-            if time.monotonic() - self._offline_since > 60:
+                self._offline_since = monotonic_time_coarse()
+            if monotonic_time_coarse() - self._offline_since > 60:
                 self.update_interval = timedelta(seconds=OUT_OF_RANGE_POLL_SECONDS)
             raise UpdateFailed(
                 translation_domain=DOMAIN, translation_key="device_out_of_range"
@@ -166,10 +168,13 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         ble_dev = async_ble_device_from_address(self.hass, address, True)
         if ble_dev is None:
+            reason = async_address_reachability_diagnostics(
+                self.hass, address, BluetoothReachabilityIntent.CONNECTION
+            )
             raise UpdateFailed(
                 translation_domain=DOMAIN,
                 translation_key="device_not_found",
-                translation_placeholders={"address": address},
+                translation_placeholders={"address": address, "reason": reason},
             )
 
         result: PollResult | None = await self.hass.async_add_executor_job(

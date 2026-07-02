@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 import uuid
 
 from bleak.backends.device import BLEDevice
+from bluetooth_data_tools import human_readable_name
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -18,6 +19,7 @@ from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.selector import SelectOptionDict
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
@@ -109,6 +111,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._selected_standard_pids: list[str] = []
         self._scanned_supported: list[str] | None = None
         self._wican_profiles: dict[str, dict[str, Any]] = {}
+        self._discovery_info: BluetoothServiceInfoBleak | None = None
 
     async def _test_connection(
         self,
@@ -129,13 +132,30 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> config_entries.ConfigFlowResult:
-        """Handle bluetooth discovery step."""
-        await self.async_set_unique_id(discovery_info.address)
+        """Handle bluetooth discovery - just record the device and ask the user to confirm."""
+        await self.async_set_unique_id(format_mac(discovery_info.address))
         self._abort_if_unique_id_configured()
         self._address = discovery_info.address
-        self._title = discovery_info.name or discovery_info.address
+        self._title = human_readable_name(
+            None, discovery_info.name, discovery_info.address
+        )
+        self._discovery_info = discovery_info
+        self.context["title_placeholders"] = {"name": self._title}
+        return await self.async_step_bluetooth_confirm()
 
-        ble_device = discovery_info.device
+    async def async_step_bluetooth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Confirm a discovered ELM327 adapter and probe it on submit."""
+        assert self._discovery_info is not None
+        if user_input is None:
+            self._set_confirm_only()
+            return self.async_show_form(
+                step_id="bluetooth_confirm",
+                description_placeholders=self.context["title_placeholders"],
+            )
+
+        ble_device = self._discovery_info.device
         result = await self._test_connection(ble_device)
         self._uuid_write = result.uuid_write
         self._uuid_read = result.uuid_read
@@ -157,13 +177,15 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             self._address = user_input[CONF_ADDRESS]
-            await self.async_set_unique_id(self._address)
+            await self.async_set_unique_id(
+                format_mac(self._address), raise_on_progress=False
+            )
             self._abort_if_unique_id_configured()
             ble_device = async_ble_device_from_address(self.hass, self._address, True)
             if not ble_device:
                 errors["base"] = "device_not_found"
             else:
-                self._title = ble_device.name or self._address
+                self._title = human_readable_name(None, ble_device.name, self._address)
                 result = await self._test_connection(ble_device)
                 self._uuid_write = result.uuid_write
                 self._uuid_read = result.uuid_read
@@ -179,7 +201,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_vehicle()
 
         devices = {
-            dev.address: f"{dev.name or 'Unknown'} ({dev.address})"
+            dev.address: human_readable_name(None, dev.name, dev.address)
             for dev in async_discovered_service_info(self.hass)
         }
         if not devices:
