@@ -1,9 +1,9 @@
 """WiCAN vehicle profile importer.
 
 Translates the upstream WiCAN JSON schema (used by the meatpiHQ/wican-fw
-project) into our internal ProfileConfig.
+project) into our internal :class:`ProfileConfig`.
 
-The WiCAN schema has this shape:
+The WiCAN schema has this shape::
 
     {
       "car_model": "VW: e-Golf 2019 (Custom)",
@@ -22,12 +22,12 @@ The WiCAN schema has this shape:
 This importer is the ONLY place in the codebase that knows the WiCAN
 shape. Reverse de-duplication runs here: any PID whose (mode, query)
 maps to a known Mode 01 standard command is promoted to
-`standard_pids` and dropped from the custom parser.
+``standard_pids`` and dropped from the custom parser.
 
-Formula translation converts WiCAN/Torque notation to canonical UOPS
+Formula translation converts WiCAN/Torque notation to canonical
 notation:
 
-    WiCAN / Torque        UOPS canonical
+    WiCAN / Torque        canonical
     ----------------      --------------
     B3                    B(3)             single unsigned byte
     S3                    S(3)             single signed byte
@@ -35,10 +35,11 @@ notation:
     [S5:S6]               S(5, 6)          multi-byte signed word
     B3:0                  BIT(3, 0)        single bit
 
-Note: UOPS uses comma notation B(5, 6) rather than WiCAN's [B5:B6]
-colon-slice notation, because `5:6` inside a Python function call is
-a syntax error. The slice is unambiguous from argument count:
-1 argument = single byte, 2 arguments = multi-byte slice.
+Note: canonical notation uses comma notation ``B(5, 6)`` rather than
+WiCAN's ``[B5:B6]`` colon-slice notation, because ``5:6`` inside a
+Python function call is a syntax error. The slice is unambiguous from
+argument count: 1 argument = single byte, 2 arguments = multi-byte
+slice.
 """
 
 import logging
@@ -47,10 +48,11 @@ from typing import Any
 
 from obdii import commands
 
-from ..schema import CustomPid, ProfileConfig
+from .._core.elm327_parsing import as_float
+from .._core.schema import CustomPid, ProfileConfig
+from .._core.standard_pids import is_supported_pids_bitmap
 
 _LOGGER = logging.getLogger(__name__)
-
 
 # Matches `AT<cmd> <args>;` where cmd is letters only (SH, CRA, SP, ST, Z, ...)
 # and args is anything up to the next semicolon. Args may be empty (e.g. `ATZ;`).
@@ -64,11 +66,11 @@ _WICAN_AT_CMD_RE: re.Pattern[str] = re.compile(
 
 
 def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
-    """Translate a WiCAN profile dict into a ProfileConfig.
+    """Translate a WiCAN profile dict into a :class:`ProfileConfig`.
 
     Never raises on a single bad PID - skips it and continues, so one
-    malformed entry doesn't lose the whole profile. Raises TypeError
-    only if `raw` is not a dict at all.
+    malformed entry doesn't lose the whole profile. Raises
+    :class:`TypeError` only if ``raw`` is not a dict at all.
     """
     if not isinstance(raw, dict):
         raise TypeError(f"WiCAN profile must be a dict, got {type(raw).__name__}")
@@ -80,8 +82,6 @@ def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
     # Optional profile-level init (e.g. ATSP6;ATST96;) - applied to
     # every PID in the profile. We merge it into each PID's
     # `init_extra` (deduplicated) so the scheduler groups correctly.
-    # A future improvement could hoist it onto ProfileConfig itself if
-    # needed.
     profile_init = (raw.get("init") or "").strip()
 
     for block in raw.get("pids", []):
@@ -97,8 +97,6 @@ def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
 
             # Reverse de-dup: Mode 01 PIDs with a known standard name get
             # promoted to standard_pids and dropped from custom_pids.
-            # The match is on address (mode + query), not on formula -
-            # see _match_standard_pid docstring.
             std_name = _match_standard_pid(mode, query)
             if std_name:
                 standard.add(std_name)
@@ -123,15 +121,12 @@ def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
                         unit=param.get("unit"),
                         device_class=param.get("class"),
                         state_class=param.get("state_class"),
-                        min_value=_as_float(param.get("min")),
-                        max_value=_as_float(param.get("max")),
+                        min_value=as_float(param.get("min")),
+                        max_value=as_float(param.get("max")),
                         source=f"import:wican:{car_model}",
                     )
                 )
         except Exception as err:  # noqa: BLE001
-            # Per-PID error handling: one malformed block doesn't abort
-            # the entire import. Log and continue so the user gets the
-            # rest of the profile's PIDs.
             _LOGGER.warning(
                 "Skipping malformed WiCAN PID block in profile %r: %s", car_model, err
             )
@@ -145,33 +140,28 @@ def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
 class WicanImporter:
     """Protocol-conforming importer for runtime dispatch.
 
-    Use the module-level `import_wican_profile()` function for direct
-    calls. Use this class when you need a uniform `ProfileImporter`
-    interface across multiple importer types.
+    Use the module-level :func:`import_wican_profile` function for
+    direct calls. Use this class when you need a uniform
+    :class:`ProfileImporter` interface across multiple importer types.
     """
 
     def can_handle(self, raw: object) -> bool:
-        """Return True if `raw` looks like a WiCAN profile dict."""
+        """Return True if ``raw`` looks like a WiCAN profile dict."""
         return isinstance(raw, dict) and ("pids" in raw or "car_model" in raw)
 
     def import_profile(self, raw: object) -> ProfileConfig:
-        """Translate a WiCAN profile dict into a ProfileConfig."""
+        """Translate a WiCAN profile dict into a :class:`ProfileConfig`."""
         if not isinstance(raw, dict):
             raise TypeError(f"WiCAN profile must be a dict, got {type(raw).__name__}")
         return import_wican_profile(raw)
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
 def _split_wican_command(raw: Any) -> tuple[str, str]:
-    """Split a WiCAN `pid` field like '22028C1' into ('22', '028C1').
+    """Split a WiCAN ``pid`` field like ``'22028C1'`` into ``('22', '028C1')``.
 
     The first 2 chars are the mode (hex byte as text); the rest is the
-    PID/DID payload. Returns ('', '') if the input is too short or not
-    a string.
+    PID/DID payload. Returns ``('', '')`` if the input is too short or
+    not a string.
     """
     if not isinstance(raw, str):
         return ("", "")
@@ -182,10 +172,10 @@ def _split_wican_command(raw: Any) -> tuple[str, str]:
 
 
 def _parse_pid_init(raw: str | None) -> tuple[str | None, str | None, str | None]:
-    """Parse a WiCAN `pid_init` string into (header, filter, extra_init).
+    """Parse a WiCAN ``pid_init`` string into ``(header, filter, extra_init)``.
 
-    Example: 'ATSH7E5;ATCRA7ED;' -> ('7E5', '7ED', None)
-    Anything beyond ATSH/ATCRA goes into extra_init verbatim,
+    Example: ``'ATSH7E5;ATCRA7ED;' -> ('7E5', '7ED', None)``.
+    Anything beyond ATSH/ATCRA goes into ``extra_init`` verbatim,
     semicolon-joined, so the scheduler can group on it as a real value.
     """
     if not raw:
@@ -209,7 +199,7 @@ def _merge_init_strings(a: str, b: str | None) -> str | None:
     """Merge two init strings, preserving order and dropping duplicates.
 
     Comparison is done on a whitespace-stripped, uppercased key so
-    'ATSP6' and 'at sp 6' don't both survive.
+    ``'ATSP6'`` and ``'at sp 6'`` don't both survive.
     """
     parts_a = [p.strip() for p in a.split(";") if p.strip()]
     parts_b = [p.strip() for p in (b or "").split(";") if p.strip()]
@@ -225,11 +215,11 @@ def _merge_init_strings(a: str, b: str | None) -> str | None:
 
 
 def _iter_parameters(raw: object) -> list[dict[str, Any]]:
-    """Yield parameter dicts from a WiCAN `parameters` block.
+    """Yield parameter dicts from a WiCAN ``parameters`` block.
 
-    The WiCAN schema allows `parameters` to be either:
-      - a list of dicts (modern):  [{"name": ..., "expression": ...}, ...]
-      - a dict of {name: expression} (Torque-style shorthand)
+    The WiCAN schema allows ``parameters`` to be either:
+      - a list of dicts (modern):  ``[{"name": ..., "expression": ...}, ...]``
+      - a dict of ``{name: expression}`` (Torque-style shorthand)
 
     Normalize to list-of-dicts. The Torque-style form loses
     unit/class/min/max (those fields don't exist in the shorthand),
@@ -245,13 +235,13 @@ def _iter_parameters(raw: object) -> list[dict[str, Any]]:
 
 
 def _match_standard_pid(mode: str, query: str) -> str | None:
-    """If (mode, query) is a known Mode 01 standard PID, return its canonical name.
+    """If ``(mode, query)`` is a known Mode 01 standard PID, return its canonical name.
 
-    The match is on address (mode + PID hex), not on formula text. If a
-    manufacturer ships a remapped/rescaled version of a standard PID
+    The match is on address (mode + PID hex), not on formula text. If
+    a manufacturer ships a remapped/rescaled version of a standard PID
     under the same address, the wire command is what determines whether
     it can be served by the native obdii Mode 01 path - so we promote
-    it to `standard_pids` and drop the custom formula. This is the
+    it to ``standard_pids`` and drop the custom formula. This is the
     "Reverse De-duplication Strategy" requirement.
 
     Returns None for non-Mode-01 PIDs (the standard catalog only
@@ -273,17 +263,17 @@ def _match_standard_pid(mode: str, query: str) -> str | None:
         return None
     if cmd is None or cmd.name == "Unnamed":
         return None
-    if cmd.name.startswith("SUPPORTED_PIDS"):
+    if is_supported_pids_bitmap(cmd.name):
         return None
     return cmd.name
 
 
 def _translate_formula(expr: Any) -> str:
-    """Translate WiCAN/Torque notation to canonical UOPS notation.
+    """Translate WiCAN/Torque notation to canonical notation.
 
     See module docstring for the translation table. Order matters:
-    multi-byte slices (with brackets) first, then single-bit
-    extraction (with `:`), then plain single-byte references.
+    multi-byte slices (with brackets) first, then single-bit extraction
+    (with ``:``), then plain single-byte references.
     """
     if not isinstance(expr, str):
         return ""
@@ -320,12 +310,3 @@ def _translate_formula(expr: Any) -> str:
     )
 
     return s.strip()
-
-
-def _as_float(v: Any) -> float | None:
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except TypeError, ValueError:
-        return None

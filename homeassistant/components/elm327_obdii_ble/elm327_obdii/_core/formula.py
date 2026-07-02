@@ -4,35 +4,36 @@ Three-stage pipeline:
 
   Stage 1 - regex pre-screen
       Fast-fail on disallowed characters. NOT the security boundary
-      (character classes can't distinguish `3.5` from `x.real`); just
+      (character classes can't distinguish ``3.5`` from ``x.real``); just
       a cheap reject for unicode, control chars, weird punctuation.
 
   Stage 2 - AST structural validation  (the actual security boundary)
-      Parse with `ast.parse(source, mode="eval")` and walk the tree,
+      Parse with ``ast.parse(source, mode="eval")`` and walk the tree,
       allowing only:
         - BinOp with whitelisted operators
         - UnaryOp with whitelisted operators
         - Constant (int or float only)
         - Call where the function is B, S, or BIT, with int-literal args
       Anything else (Name, Attribute, Subscript, Lambda, comprehensions,
-      walrus, f-strings, nested calls) raises FormulaValidationError.
+      walrus, f-strings, nested calls) raises :class:`FormulaValidationError`.
       After this visitor passes, the tree is structurally incapable of
-      reaching __builtins__, doing attribute traversal, or constructing
+      reaching ``__builtins__``, doing attribute traversal, or constructing
       arbitrary objects.
 
   Stage 3 - compile() to CPython bytecode  (the performance fix)
-      `compile(tree, filename="<uops_formula>", mode="eval")` produces
-      a real code object. At runtime, `eval(code, {"__builtins__": {}}, ...)`
-      runs in the interpreter's eval loop directly - no per-poll AST
-      walk, no per-call NodeVisitor dispatch, no per-call dict lookups.
+      ``compile(tree, filename="<elm327_obdii_formula>", mode="eval")``
+      produces a real code object. At runtime,
+      ``eval(code, {"__builtins__": {}}, ...)`` runs in the interpreter's
+      eval loop directly - no per-poll AST walk, no per-call NodeVisitor
+      dispatch, no per-call dict lookups.
 
-The config flow runs only stages 1+2 (via `validate_formula()`) to
-refuse save on a bad formula. The coordinator compiles to bytecode
-once at startup via `compile_formula()` (cached with functools.lru_cache
+The config flow runs only stages 1+2 (via :func:`validate_formula`) to
+refuse save on a bad formula. The poller compiles to bytecode once at
+startup via :func:`compile_formula` (cached with functools.lru_cache
 on the source string) and reuses it for the life of the process.
 
-Canonical UOPS formula notation
--------------------------------
+Canonical formula notation
+--------------------------
     B(n)         unsigned byte at index n            (0..255)
     B(n, m)      big-endian unsigned word, bytes n..m inclusive
     S(n)         signed byte at index n              (-128..127)
@@ -48,7 +49,6 @@ Canonical UOPS formula notation
     Grouping:   parentheses only
 
 Examples:
---------
     "B(0) / 2.55"            SOC percentage from a 0..255 byte
     "B(5, 6) / 100"          16-bit big-endian value scaled to hundredths
     "S(3) * 1.8 + 32"        Celsius to Fahrenheit
@@ -75,24 +75,9 @@ class FormulaValidationError(ValueError):
     """Raised when a formula fails the whitelist or AST structural check."""
 
 
-# ---------------------------------------------------------------------------
-# Stage 1 - character/token pre-screen
-# ---------------------------------------------------------------------------
-
-# Allow letters (for B/S/BIT and scientific-notation `e`), digits, math
-# operators, parens, commas, and whitespace. Anything outside this set
-# is rejected before we even bother parsing. Note: colons are NOT
-# allowed - the canonical multi-byte slice notation uses commas
-# (B(5, 6) not B(5:6)) because `5:6` inside a function call is not
-# valid Python syntax.
 _TOKEN_WHITELIST: Final[re.Pattern[str]] = re.compile(
     r"^[A-Za-z0-9+\-*/%().,&|^~<>\s]+$"
 )
-
-
-# ---------------------------------------------------------------------------
-# Stage 2 - AST structural validation
-# ---------------------------------------------------------------------------
 
 _FUNCTION_NAMES: Final[frozenset[str]] = frozenset({"B", "S", "BIT"})
 _ALLOWED_BINOPS: Final[frozenset[type]] = frozenset(
@@ -117,10 +102,10 @@ _ALLOWED_UNARYOPS: Final[frozenset[type]] = frozenset({ast.UAdd, ast.USub, ast.I
 class _AstWhitelistVisitor(ast.NodeVisitor):
     """Walk the AST and raise on any node type not in the whitelist.
 
-    `generic_visit` is overridden to raise - so any node type without
-    an explicit `visit_*` method (Name, Attribute, Subscript, Lambda,
+    ``generic_visit`` is overridden to raise - so any node type without
+    an explicit ``visit_*`` method (Name, Attribute, Subscript, Lambda,
     comprehensions, walrus, f-strings, BoolOp, Compare, IfExp, etc.)
-    is rejected by default. Each allowed `visit_*` method recurses
+    is rejected by default. Each allowed ``visit_*`` method recurses
     explicitly into the children it expects, so the visitor never
     silently skips a subtree.
     """
@@ -165,10 +150,6 @@ class _AstWhitelistVisitor(ast.NodeVisitor):
                 "keyword arguments are not allowed in formulas"
             )
 
-        # All args must be non-negative integer literals. This is more
-        # restrictive than strictly necessary (you could imagine allowing
-        # `B(0+1)`) but it keeps the validation a single-pass structural
-        # check - no need to evaluate subexpressions.
         for arg in node.args:
             if (
                 not isinstance(arg, ast.Constant)
@@ -183,7 +164,6 @@ class _AstWhitelistVisitor(ast.NodeVisitor):
                     f"arguments to {node.func.id}() must be non-negative"
                 )
 
-        # Arity check
         if node.func.id == "BIT":
             if len(node.args) != 2:
                 raise FormulaValidationError("BIT(b, n) requires exactly 2 arguments")
@@ -193,7 +173,6 @@ class _AstWhitelistVisitor(ast.NodeVisitor):
             )
 
     def generic_visit(self, node: ast.AST) -> None:
-        # Called for any node type without an explicit visitor - reject.
         raise FormulaValidationError(
             f"disallowed expression element: {type(node).__name__!r}"
         )
@@ -202,12 +181,12 @@ class _AstWhitelistVisitor(ast.NodeVisitor):
 def validate_formula(source: str) -> None:
     """Stages 1+2: regex pre-screen + AST structural validation.
 
-    Raises FormulaValidationError on any disallowed construct.
-    Does NOT call compile() - that's `compile_formula()`'s job.
+    Raises :class:`FormulaValidationError` on any disallowed construct.
+    Does NOT call :func:`compile` - that's :func:`compile_formula`'s job.
 
     The config flow calls this to refuse save on a bad formula. The
-    coordinator calls `compile_formula()` (which internally calls
-    `validate_formula` first) at startup.
+    poller calls :func:`compile_formula` (which internally calls
+    :func:`validate_formula` first) at startup.
     """
     if not isinstance(source, str):
         raise FormulaValidationError("formula must be a string")
@@ -219,7 +198,7 @@ def validate_formula(source: str) -> None:
     if not _TOKEN_WHITELIST.fullmatch(source):
         raise FormulaValidationError(
             "formula contains disallowed characters; only digits, math operators, "
-            "parentheses, commas, colons, and the functions B/S/BIT are permitted"
+            "parentheses, commas, and the functions B/S/BIT are permitted"
         )
 
     try:
@@ -232,24 +211,21 @@ def validate_formula(source: str) -> None:
     _AstWhitelistVisitor().visit(tree)
 
 
-# ---------------------------------------------------------------------------
-# Stage 3 - compile to bytecode
-# ---------------------------------------------------------------------------
-
-
 @lru_cache(maxsize=512)
 def compile_formula(source: str) -> CodeType:
-    """Stages 1+2+3: validate, then compile() to a Python code object.
+    """Stages 1+2+3: validate, then ``compile()`` to a Python code object.
 
     Cached on the source string for the life of the process. The first
-    call from the coordinator's startup pays the parse+compile cost;
-    subsequent calls (including from `make_evaluator`) hit the cache.
+    call from the poller's startup pays the parse+compile cost;
+    subsequent calls (including from :func:`make_evaluator`) hit the
+    cache.
 
-    The returned code object is suitable for `eval(code, {"__builtins__": {}}, locals)`.
+    The returned code object is suitable for
+    ``eval(code, {"__builtins__": {}}, locals)``.
     """
     validate_formula(source)
     tree = ast.parse(source, mode="eval")
-    return compile(tree, filename="<uops_formula>", mode="eval")
+    return compile(tree, filename="<elm327_obdii_formula>", mode="eval")
 
 
 def make_evaluator(source: str) -> Callable[[list[int]], float | None]:
@@ -259,12 +235,12 @@ def make_evaluator(source: str) -> Callable[[list[int]], float | None]:
       - returns None on ZeroDivisionError, IndexError, ValueError,
         TypeError, OverflowError - a single bad formula never crashes
         the polling cycle, the sensor just reads unavailable.
-      - returns float(result) on success.
+      - returns ``float(result)`` on success.
 
     Out-of-bounds byte accesses return 0 (matching the existing
-    wican/formula.py behavior) rather than raising, so a formula that
-    references byte 7 against a 6-byte response degrades gracefully
-    instead of marking the sensor unavailable on every poll.
+    behavior) rather than raising, so a formula that references byte 7
+    against a 6-byte response degrades gracefully instead of marking
+    the sensor unavailable on every poll.
     """
     code = compile_formula(source)
 
@@ -287,18 +263,13 @@ def make_evaluator(source: str) -> Callable[[list[int]], float | None]:
     return evaluate
 
 
-# ---------------------------------------------------------------------------
-# Safe runtime helpers - exposed to eval() as the names B, S, BIT
-# ---------------------------------------------------------------------------
-
-
 def _make_byte_helpers(payload: list[int]) -> dict[str, object]:
-    """Build the safe locals dict for eval().
+    """Build the safe locals dict for ``eval()``.
 
-    Each helper closes over `payload` and bounds-checks every access.
-    Out-of-bounds reads return 0 instead of raising - this matches
-    the existing wican/formula.py behavior and keeps a single bad
-    byte index from marking the sensor unavailable on every poll.
+    Each helper closes over ``payload`` and bounds-checks every access.
+    Out-of-bounds reads return 0 instead of raising - this keeps a
+    single bad byte index from marking the sensor unavailable on every
+    poll.
     """
 
     def b(n: int, m: int | None = None) -> int:
@@ -308,7 +279,6 @@ def _make_byte_helpers(payload: list[int]) -> dict[str, object]:
             return payload[n]
         if m < n or m >= len(payload):
             return 0
-        # big-endian unsigned word, byte n through m inclusive
         return int.from_bytes(bytes(payload[n : m + 1]), byteorder="big", signed=False)
 
     def s(n: int, m: int | None = None) -> int:

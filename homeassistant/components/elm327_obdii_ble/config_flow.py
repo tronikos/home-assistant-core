@@ -59,7 +59,7 @@ from .elm327_obdii import (
     list_builtin_profiles,
     load_builtin_profile,
     pid_to_form_defaults,
-    probe_connection,
+    probe_adapter,
     standard_pid_options,
     user_input_to_form_defaults,
     validate_formula,
@@ -71,6 +71,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 _NO_PROFILE = "none"
+_IMPORT_WICAN = "__import_wican__"
 _ACTION_ADD = "__add__"
 _ACTION_BACK = "__back__"
 
@@ -123,7 +124,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConnectionTestResult:
         """Run the connection test in the executor pool."""
         return await self.hass.async_add_executor_job(
-            probe_connection,
+            probe_adapter,
             ble_device,
             self.hass.loop,
             uuid_write or DEFAULT_UUID_WRITE,
@@ -162,7 +163,6 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             self._address = user_input[CONF_ADDRESS]
-            assert self._address is not None
             await self.async_set_unique_id(self._address)
             self._abort_if_unique_id_configured()
             ble_device = async_ble_device_from_address(self.hass, self._address, True)
@@ -205,9 +205,9 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._uuid_write = user_input[CONF_UUID_WRITE]
             self._uuid_read = user_input[CONF_UUID_READ]
 
-            address = self._address
-            assert address is not None
-            ble_device = async_ble_device_from_address(self.hass, address, True)
+            # Reached only after async_step_user/bluetooth set self._address.
+            assert self._address is not None
+            ble_device = async_ble_device_from_address(self.hass, self._address, True)
             if ble_device:
                 result = await self._test_connection(
                     ble_device, self._uuid_write, self._uuid_read
@@ -255,43 +255,37 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_vehicle(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Pick a built-in UOPS profile or a WiCAN-fetched profile."""
+        """Pick a built-in profile, none, or choose to import from WiCAN."""
         if user_input is not None:
             choice = user_input["profile"]
 
             if choice == _NO_PROFILE:
                 self._profile_config = ProfileConfig()
-            else:
-                builtin = await self.hass.async_add_executor_job(
-                    load_builtin_profile, choice
-                )
-                if builtin is not None:
-                    self._profile_config = builtin
-                elif choice in self._wican_profiles:
-                    self._profile_config = import_wican_profile(
-                        self._wican_profiles[choice]
-                    )
-                else:
-                    self._profile_config = ProfileConfig()
+                return await self.async_step_standard_pids()
 
+            if choice == _IMPORT_WICAN:
+                # Defer the WiCAN fetch to the next step so we only hit
+                # the network when the user actually wants a WiCAN profile.
+                return await self.async_step_wican()
+
+            builtin = await self.hass.async_add_executor_job(
+                load_builtin_profile, choice
+            )
+            self._profile_config = builtin if builtin is not None else ProfileConfig()
             return await self.async_step_standard_pids()
 
         builtins = await self.hass.async_add_executor_job(list_builtin_profiles)
-        builtin_names = [p["name"] for p in builtins]
-
-        session = async_get_clientsession(self.hass)
-        self._wican_profiles = await fetch_wican_profiles(session)
 
         options: list[SelectOptionDict] = [
             SelectOptionDict(value=_NO_PROFILE, label="None / Standard OBD-II Only")
         ]
         options.extend(
-            SelectOptionDict(value=name, label=name) for name in builtin_names
+            SelectOptionDict(value=p["name"], label=p["name"]) for p in builtins
         )
-        options.extend(
-            SelectOptionDict(value=car_model, label=car_model)
-            for car_model in sorted(self._wican_profiles)
-            if car_model not in builtin_names
+        options.append(
+            SelectOptionDict(
+                value=_IMPORT_WICAN, label="Import from WiCAN repository..."
+            )
         )
 
         return self.async_show_form(
@@ -309,12 +303,61 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         )
 
+    async def async_step_wican(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Fetch WiCAN profiles and let the user pick one to import.
+
+        Only reached when the user selected "Import from WiCAN
+        repository..." on the vehicle step. If the fetch returns no
+        profiles (network error, unexpected shape), the user is bounced
+        back to the vehicle step with an error.
+        """
+        if user_input is not None:
+            choice = user_input["profile"]
+            if choice in self._wican_profiles:
+                self._profile_config = import_wican_profile(
+                    self._wican_profiles[choice]
+                )
+            else:
+                self._profile_config = ProfileConfig()
+            return await self.async_step_standard_pids()
+
+        session = async_get_clientsession(self.hass)
+        self._wican_profiles = await fetch_wican_profiles(session)
+
+        if not self._wican_profiles:
+            # Network/parse failure - send the user back to the vehicle
+            # step. (We use a no-op form here; the user re-picks on the
+            # previous step.)
+            return self.async_abort(reason="wican_fetch_failed")
+
+        options: list[SelectOptionDict] = [
+            SelectOptionDict(value=car_model, label=car_model)
+            for car_model in sorted(self._wican_profiles)
+        ]
+
+        return self.async_show_form(
+            step_id="wican",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "profile", default=options[0]["value"]
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options, mode=selector.SelectSelectorMode.DROPDOWN
+                        )
+                    )
+                }
+            ),
+        )
+
     async def async_step_standard_pids(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Multiselect standard Mode 01 PIDs."""
         if user_input is not None:
-            self._selected_standard_pids = list(user_input.get("standard_pids", []))
+            self._selected_standard_pids = list(user_input["standard_pids"])
             return await self.async_step_custom_pids_select()
 
         scanned = self._scanned_supported
@@ -370,7 +413,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self._async_create_entry(profile)
 
         if user_input is not None:
-            selected_ids = set(user_input.get("custom_pids", []))
+            selected_ids = set(user_input["custom_pids"])
             selected_custom = [
                 pid
                 for pid in self._profile_config.custom_pids
@@ -466,10 +509,9 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Polling intervals + voltage thresholds."""
         if user_input is not None:
-            voltage_check_bool = user_input[CONF_VOLTAGE_CHECK] == "AT RV"
             self._options.update(
                 {
-                    CONF_VOLTAGE_CHECK: voltage_check_bool,
+                    CONF_VOLTAGE_CHECK: user_input[CONF_VOLTAGE_CHECK],
                     CONF_FAST_POLL: user_input[CONF_FAST_POLL],
                     CONF_SLOW_POLL: user_input[CONF_SLOW_POLL],
                     CONF_XS_POLL: user_input[CONF_XS_POLL],
@@ -480,44 +522,66 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
             )
             return self._async_save_options()
 
-        voltage_check = self._options.get(CONF_VOLTAGE_CHECK, True)
-
         return self.async_show_form(
             step_id="polling",
             data_schema=vol.Schema(
                 {
                     vol.Required(
                         CONF_VOLTAGE_CHECK,
-                        default="AT RV" if voltage_check else "Disabled",
-                    ): vol.In(["AT RV", "Disabled"]),
+                        default=self._options.get(CONF_VOLTAGE_CHECK, True),
+                    ): selector.BooleanSelector(),
                     vol.Required(
                         CONF_FAST_POLL,
                         default=self._options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL),
-                    ): int,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1, max=3600, step=1, unit_of_measurement="s"
+                        )
+                    ),
                     vol.Required(
                         CONF_SLOW_POLL,
                         default=self._options.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL),
-                    ): int,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=10, max=3600, step=1, unit_of_measurement="s"
+                        )
+                    ),
                     vol.Required(
                         CONF_XS_POLL,
                         default=self._options.get(CONF_XS_POLL, DEFAULT_XS_POLL),
-                    ): int,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=60, max=86400, step=1, unit_of_measurement="s"
+                        )
+                    ),
                     vol.Required(
                         CONF_VOLTAGE_ON,
                         default=self._options.get(CONF_VOLTAGE_ON, DEFAULT_VOLTAGE_ON),
-                    ): float,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=10.0, max=15.0, step=0.1, unit_of_measurement="V"
+                        )
+                    ),
                     vol.Required(
                         CONF_VOLTAGE_OFF,
                         default=self._options.get(
                             CONF_VOLTAGE_OFF, DEFAULT_VOLTAGE_OFF
                         ),
-                    ): float,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=10.0, max=15.0, step=0.1, unit_of_measurement="V"
+                        )
+                    ),
                     vol.Required(
                         CONF_GRACE_PERIOD,
                         default=self._options.get(
                             CONF_GRACE_PERIOD, DEFAULT_GRACE_PERIOD
                         ),
-                    ): int,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=600, step=1, unit_of_measurement="s"
+                        )
+                    ),
                 }
             ),
         )
@@ -527,7 +591,7 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Multiselect standard PIDs, with live ECU re-scan for supported ones."""
         if user_input is not None:
-            self._profile.standard_pids = list(user_input.get("standard_pids", []))
+            self._profile.standard_pids = list(user_input["standard_pids"])
             self._options[CONF_PROFILE] = self._profile.to_dict()
             return self._async_save_options()
 
@@ -637,7 +701,7 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_custom_pids()
 
         if user_input is not None:
-            if user_input.get("remove"):
+            if user_input["remove"]:
                 if existing is not None:
                     self._profile.custom_pids = [
                         p for p in self._profile.custom_pids if p.id != existing.id
@@ -646,22 +710,22 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                     return self._async_save_options()
                 return await self.async_step_custom_pids()
 
-            formula = (user_input.get("formula") or "").strip()
+            formula = (user_input["formula"] or "").strip()
             try:
                 validate_formula(formula)
             except FormulaValidationError as err:
                 errors["formula"] = "invalid_formula"
                 _LOGGER.debug("Formula validation failed: %s", err)
 
-            mode = (user_input.get("mode") or "").strip().upper()
-            query = (user_input.get("query") or "").strip().upper()
+            mode = (user_input["mode"] or "").strip().upper()
+            query = (user_input["query"] or "").strip().upper()
             if not is_hex(mode) or len(mode) != 2:
                 errors["mode"] = "invalid_hex"
             if not is_hex(query):
                 errors["query"] = "invalid_hex"
 
-            can_header = (user_input.get("can_header") or "").strip().upper()
-            can_filter = (user_input.get("can_filter") or "").strip().upper()
+            can_header = (user_input["can_header"] or "").strip().upper()
+            can_filter = (user_input["can_filter"] or "").strip().upper()
             if can_header and not is_hex(can_header):
                 errors["can_header"] = "invalid_hex"
             if can_filter and not is_hex(can_filter):
@@ -671,19 +735,19 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                 pid_id = existing.id if existing is not None else uuid.uuid4().hex
                 pid = CustomPid(
                     id=pid_id,
-                    name=(user_input.get("pid_name") or "").strip() or "Unnamed",
+                    name=(user_input["pid_name"] or "").strip() or "Unnamed",
                     mode=mode,
                     query=query,
                     formula=formula,
                     can_header=can_header or None,
                     can_filter=can_filter or None,
-                    init_extra=(user_input.get("init_extra") or "").strip() or None,
-                    unit=(user_input.get("unit") or "").strip() or None,
-                    device_class=user_input.get("device_class") or None,
-                    state_class=user_input.get("state_class") or None,
-                    min_value=as_float(user_input.get("min_value")),
-                    max_value=as_float(user_input.get("max_value")),
-                    expected_bytes=int(user_input.get("expected_bytes") or 0),
+                    init_extra=(user_input["init_extra"] or "").strip() or None,
+                    unit=(user_input["unit"] or "").strip() or None,
+                    device_class=user_input["device_class"] or None,
+                    state_class=user_input["state_class"] or None,
+                    min_value=as_float(user_input["min_value"]),
+                    max_value=as_float(user_input["max_value"]),
+                    expected_bytes=int(user_input["expected_bytes"] or 0),
                     source="manual",
                 )
                 if existing is not None:

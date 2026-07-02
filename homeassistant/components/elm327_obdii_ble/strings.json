@@ -2,7 +2,8 @@
   "config": {
     "abort": {
       "no_characteristics_found": "Could not discover any Bluetooth characteristics on this device. Verify it is an OBD-II adapter.",
-      "no_devices_found": "No unconfigured ELM327 BLE devices found. Ensure your adapter is powered and in range."
+      "no_devices_found": "No unconfigured ELM327 BLE devices found. Ensure your adapter is powered and in range.",
+      "wican_fetch_failed": "Could not fetch vehicle profiles from the WiCAN repository. Check your network connection and try again, or pick a built-in profile."
     },
     "error": {
       "device_not_found": "Could not establish an over-the-air link to the device. Verify it is powered.",
@@ -43,8 +44,15 @@
         "data": {
           "profile": "Vehicle Profile"
         },
-        "description": "Choose a vehicle profile. Built-in profiles are listed first; vehicle-specific profiles fetched from the WiCAN project are translated into the integration's internal format on selection. Choose 'None / Standard OBD-II Only' if you only want standard Mode 01 PIDs - you can add custom PIDs later via the Options screen.",
+        "description": "Choose a built-in vehicle profile, or pick 'None / Standard OBD-II Only' if you only want standard Mode 01 PIDs (you can add custom PIDs later via the Options screen). To use a profile from the WiCAN project, select 'Import from WiCAN repository...' - the list will be fetched on the next screen.",
         "title": "Select Vehicle Profile"
+      },
+      "wican": {
+        "data": {
+          "profile": "WiCAN Vehicle Profile"
+        },
+        "description": "These profiles were fetched from the meatpiHQ/wican-fw repository. After you pick one, it is translated into the integration's internal format and stored locally; nothing from the source JSON is redistributed.",
+        "title": "Import from WiCAN Repository"
       }
     }
   },
@@ -117,7 +125,7 @@
         "data": {
           "fast_poll": "Active polling interval (seconds)",
           "slow_poll": "Idle polling interval (seconds)",
-          "voltage_check": "Voltage checking mode",
+          "voltage_check": "Query battery voltage via AT RV (enables ignition-on/off detection)",
           "voltage_grace_seconds": "Post-shutdown grace period (seconds)",
           "voltage_off_threshold": "Ignition off threshold (V)",
           "voltage_on_threshold": "Ignition on threshold (V)",

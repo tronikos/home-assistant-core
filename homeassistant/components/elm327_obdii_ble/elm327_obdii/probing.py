@@ -1,7 +1,11 @@
-"""Connection testing and GATT characteristic discovery.
+"""Config-flow-time BLE OBD-II adapter probing.
 
 Pure-Python helpers for probing BLE OBD-II adapters during the config
-flow. No Home Assistant imports.
+flow: open a TransportBLE + obdii.Connection, query AT RV, scan
+supported PIDs, and report back. Also provides GATT characteristic
+enumeration for the manual UUID selection UI.
+
+No Home Assistant imports.
 """
 
 import asyncio
@@ -15,7 +19,7 @@ from bleak.exc import BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from obdii import Command, Connection, Mode
 
-from .standard_pids import scan_supported_pids
+from ._core.standard_pids import scan_supported_pids
 from .transport_ble import TransportBLE, TransportError
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,10 +29,10 @@ _LOGGER = logging.getLogger(__name__)
 class ConnectionTestResult:
     """Result of probing a BLE OBD-II adapter.
 
-    `success` is None if the connection itself failed; True/False if the
-    connection worked and AT RV returned a plausible voltage vs "?".
-    `scanned_supported` is the list of supported Mode 01 PID names if
-    the scan succeeded, else None.
+    ``success`` is None if the connection itself failed; True/False if
+    the connection worked and AT RV returned a plausible voltage vs
+    ``"?"``. ``scanned_supported`` is the list of supported Mode 01 PID
+    names if the scan succeeded, else None.
     """
 
     success: bool | None
@@ -37,7 +41,7 @@ class ConnectionTestResult:
     scanned_supported: list[str] | None
 
 
-def probe_connection(
+def probe_adapter(
     ble_device: BLEDevice,
     loop: asyncio.AbstractEventLoop,
     uuid_write: str,

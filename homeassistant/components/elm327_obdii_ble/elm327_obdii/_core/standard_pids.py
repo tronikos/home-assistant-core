@@ -1,16 +1,13 @@
 """Canonical Mode 01 PID catalog, entity heuristics, and supported-PID scan.
 
-`RECOMMENDED_DEFAULTS` is validated against the live obdii registry at
-import time so a typo fails loudly instead of silently at runtime.
+``RECOMMENDED_DEFAULTS`` is validated against the live obdii registry
+at import time so a typo fails loudly instead of silently at runtime.
 """
 
 from typing import Final
 
 from obdii import Command, Connection, commands
 
-# Recommended defaults - preselected on the standard-PID multiselect.
-# Validated at import time so a typo in this list fails immediately,
-# not the first time a user opens the config flow.
 RECOMMENDED_DEFAULTS: Final[list[str]] = [
     "ENGINE_SPEED",
     "VEHICLE_SPEED",
@@ -27,8 +24,8 @@ for _name in RECOMMENDED_DEFAULTS:
     if _name not in commands[1]:
         raise RuntimeError(
             f"RECOMMENDED_DEFAULTS references {_name!r} which is not a real "
-            f"obdii Mode 01 command - check uops/standard_pids.py against the "
-            f"pinned py-obdii version"
+            f"obdii Mode 01 command - check _core/standard_pids.py against "
+            f"the pinned py-obdii version"
         )
 del _name
 
@@ -47,6 +44,15 @@ _BITMAP_COMMAND_NAMES: Final[list[str]] = [
     "SUPPORTED_PIDS_F",
     "SUPPORTED_PIDS_G",
 ]
+
+
+def is_supported_pids_bitmap(name: str) -> bool:
+    """True if ``name`` is one of the SUPPORTED_PIDS_A..G bitmap commands.
+
+    These are metadata - not user-trackable parameters - so they're
+    filtered out of every list that feeds into the UI or the query plan.
+    """
+    return name.startswith("SUPPORTED_PIDS")
 
 
 def get_standard_command(name: str) -> Command | None:
@@ -158,15 +164,14 @@ def get_list_of_units(command: Command) -> list[str]:
 def scan_supported_pids(connection: Connection) -> list[str]:
     """Walk Mode 01 PID 00/20/40/.../C0 bitmaps and return supported command names.
 
-    `connection` is an obdii.Connection. The caller is responsible for
-    opening and closing it.
+    ``connection`` is an obdii.Connection. The caller is responsible
+    for opening and closing it.
 
     Returns a list of canonical command names (e.g. ["ENGINE_SPEED",
     "VEHICLE_SPEED", ...]) sorted by PID number. If the scan fails at
     any point - adapter returns no data, the ECU is offline, the user
     turned the car off mid-scan - returns an empty list, and the
-    caller falls back to RECOMMENDED_DEFAULTS (with a UI warning, per
-    the Gemini 3.1 Pro suggestion).
+    caller falls back to RECOMMENDED_DEFAULTS (with a UI warning).
     """
     supported: list[str] = []
 
@@ -180,8 +185,6 @@ def scan_supported_pids(connection: Connection) -> list[str]:
         if resp is None or resp.value is None:
             break
 
-        # SupportedPIDS resolver returns list[int] of supported PID
-        # numbers in [base+1, base+32].
         supported_pid_ints = resp.value
         if not supported_pid_ints:
             break
@@ -192,18 +195,13 @@ def scan_supported_pids(connection: Connection) -> list[str]:
             except KeyError:
                 continue
             if cmd_obj and cmd_obj.name != "Unnamed":
-                # Skip the bitmap PIDs themselves - they're not
-                # user-trackable parameters, just metadata.
-                if not cmd_obj.name.startswith("SUPPORTED_PIDS"):
+                if not is_supported_pids_bitmap(cmd_obj.name):
                     supported.append(cmd_obj.name)
 
-        # The bitmap chain: if PID +0x20 (the next-block-request bit)
-        # is NOT in the supported list, the chain stops here.
         next_block = pid_int + 0x20
         if next_block not in supported_pid_ints:
             break
 
-    # Dedup + sort by PID integer for deterministic ordering.
     seen: set[str] = set()
     deduped: list[str] = []
     for name in supported:
@@ -212,11 +210,6 @@ def scan_supported_pids(connection: Connection) -> list[str]:
         seen.add(name)
         deduped.append(name)
     return sorted(deduped)
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 
 def _first_unit(command: Command) -> str:

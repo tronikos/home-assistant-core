@@ -1,28 +1,31 @@
-"""Built-in vehicle profiles in UOPS internal format.
+"""Built-in vehicle profiles in the library's internal format.
 
 Original works - not derivatives of any upstream GPL-licensed profile
 database. CAN PID addresses are factual data (not copyrightable);
-formulas use UOPS canonical notation; the JSON schema is ProfileConfig.
+formulas use the canonical notation described in
+:mod:`elm327_obdii._core.formula`; the JSON schema matches
+:class:`elm327_obdii.ProfileConfig`.
 
 For a wider selection, the integration fetches WiCAN's
-vehicle_profiles.json at runtime and translates it via
-`uops.importers.wican.import_wican_profile`. Nothing from the source
-JSON is persisted or redistributed; only the resulting ProfileConfig is
-stored in the user's HA config entry.
+``vehicle_profiles.json`` at runtime and translates it via
+:func:`elm327_obdii.import_wican_profile`. Nothing from the source
+JSON is persisted or redistributed; only the resulting
+:class:`ProfileConfig` is stored in the user's HA config entry.
 """
 
 from importlib import resources
 import json
 from typing import Any
 
-from ..schema import CustomPid, ProfileConfig
+from .._core.schema import CustomPid, ProfileConfig
 
 
 def list_builtin_profiles() -> list[dict[str, Any]]:
     """Return the raw list of built-in profile entries (with name/description).
 
-    Each entry has at minimum: name, description, standard_pids, custom_pids.
-    Use this to populate the vehicle-selection dropdown in the config flow.
+    Each entry has at minimum: ``name``, ``description``,
+    ``standard_pids``, ``custom_pids``. Use this to populate the
+    vehicle-selection dropdown in the config flow.
     """
     with (
         resources.files(__package__)
@@ -34,11 +37,11 @@ def list_builtin_profiles() -> list[dict[str, Any]]:
 
 
 def load_builtin_profile(name: str) -> ProfileConfig | None:
-    """Return the named built-in profile as a ProfileConfig, or None if not found.
+    """Return the named built-in profile as a :class:`ProfileConfig`, or None.
 
     Name match is exact and case-sensitive. Built-in profile names are
-    defined in builtin.json and are stable across releases - adding a
-    new profile is safe, renaming an existing one would orphan user
+    defined in ``builtin.json`` and are stable across releases - adding
+    a new profile is safe, renaming an existing one would orphan user
     entity unique-ids.
     """
     for entry in list_builtin_profiles():
@@ -54,8 +57,7 @@ def _entry_to_profile(entry: dict[str, Any]) -> ProfileConfig:
         # Built-in profiles use stable string IDs (e.g. "egolf-soc-bms")
         # so entity unique-ids don't change across HA restarts or
         # integration upgrades. If a built-in entry is missing `id`,
-        # fall back to a name-derived slug - but every entry in
-        # builtin.json should have one.
+        # skip it - every entry in builtin.json should have one.
         if "id" not in cp_dict:
             continue
         custom.append(CustomPid.from_dict(cp_dict))

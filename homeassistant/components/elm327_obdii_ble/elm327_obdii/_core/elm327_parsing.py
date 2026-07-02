@@ -1,54 +1,48 @@
-"""ELM327 raw-response parsing helpers.
+"""ELM327 raw-response parsing and small coercion helpers.
 
 The "dirty array" data contract
 -------------------------------
 Custom OBD-II formulas in WiCAN, Torque, and RealDash profiles are
 written by users looking at raw ELM327 terminal output. When a user
-sends `22 028C` and sees:
+sends ``22 028C`` and sees::
 
     7E8 05 62 02 8C 1F A0 03 E8
 
 ...they count bytes from left to right starting at the PCI byte:
-index 0 = `05` (PCI), 1 = `62` (mode echo), 2 = `02` (PID high),
-3 = `8C` (PID low), 4 = `1F` (first payload byte), etc. A formula
-like `B(4) / 2.55` refers to that 5th byte overall.
+index 0 = ``05`` (PCI), 1 = ``62`` (mode echo), 2 = ``02`` (PID high),
+3 = ``8C`` (PID low), 4 = ``1F`` (first payload byte), etc. A formula
+like ``B(4) / 2.55`` refers to that 5th byte overall.
 
 This is the de facto industry-standard data contract for custom PID
-formulas. py-obdii's `Response.unparsed` is a *clean* payload with
+formulas. py-obdii's ``Response.unparsed`` is a *clean* payload with
 PCI/mode/PID bytes stripped - which is correct for standard Mode 01
 PIDs (where py-obdii's own typed resolvers handle the scaling), but
 *wrong* for custom PIDs whose formulas were authored against the
 dirty-array convention.
 
-ELM327 adapters with `AT CAF1` (CAN Auto Formatting, the default)
+ELM327 adapters with ``AT CAF1`` (CAN Auto Formatting, the default)
 handle ISO 15765-2 multi-frame reassembly in hardware and emit the
 reassembled payload as a single text response. The interspersed PCI
 bytes that appear at frame boundaries in the dirty array are the
 *adapter's* PCI bytes, not raw CAN-frame PCI bytes - they're part
 of the ELM327's text output format that formula authors see and
 count against.
-
-`extract_dirty_array`
----------------------
-Parses the raw ELM327 text response (bytes) into a flat `list[int]`
-of all hex bytes in the response, skipping:
-  - `>` prompt characters
-  - non-hex lines (DATA, ERROR, STOPPED, UNABLE, BUS tokens)
-  - the CAN header token at the start of each line (3 chars for
-    11-bit CAN, 8 chars for 29-bit CAN)
-
-Handles both space-delimited packets (`AT S1`, the default) and
-contiguous hex strings (`AT S0`, spaces off).
 """
 
 import logging
-from re import IGNORECASE, search as research
+import re
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
-# Known non-hex diagnostic and error tokens returned by ELM327 interfaces.
-# Lines containing any of these are skipped entirely.
 _OBD_ERROR_TOKENS = ("DATA", "ERROR", "STOPPED", "UNABLE", "BUS")
+
+_HEX_RE = re.compile(r"^[0-9A-Fa-f]+$")
+
+# Matches 1-2 digits, decimal point, 1-3 digits (e.g. "14.2V", "12.80V",
+# "14.234V"). Negative lookarounds prevent matching longer numbers like
+# "123.45".
+_VOLTAGE_RE = re.compile(r"(?<!\d)(\d{1,2}\.\d{1,3})(?!\d)")
 
 
 def extract_dirty_array(raw_response: bytes) -> list[int]:
@@ -65,7 +59,7 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
       - 11-bit CAN headers (3 hex chars): "7E8"
       - 29-bit CAN headers (8 hex chars): "18DAF110"
       - Multi-line responses (one CAN frame per line)
-      - `>` prompt character stripping
+      - ``>`` prompt character stripping
       - Error token filtering (DATA, ERROR, STOPPED, UNABLE, BUS)
 
     The CAN header token at the start of each line is skipped - only
@@ -132,16 +126,29 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
 
 
 def extract_voltage(raw_response: bytes) -> float | None:
-    """Parse a voltage float from an AT RV raw response.
-
-    Matches 1-2 digits, decimal point, 1-3 digits (e.g. "14.2V", "12.80V", "14.234V").
-    Negative lookarounds prevent matching longer numbers like "123.45".
-    """
+    """Parse a voltage float from an ``AT RV`` raw response."""
     raw_text = raw_response.decode("utf-8", errors="ignore")
-    match = research(r"(?<!\d)(\d{1,2}\.\d{1,3})(?!\d)", raw_text, IGNORECASE)
+    match = _VOLTAGE_RE.search(raw_text)
     if not match:
         return None
     try:
         return float(match.group(1))
     except ValueError:
+        return None
+
+
+def is_hex(s: str) -> bool:
+    """True if ``s`` is a non-empty string of hex digits (no ``0x`` prefix)."""
+    if not s:
+        return False
+    return _HEX_RE.fullmatch(s) is not None
+
+
+def as_float(v: Any) -> float | None:
+    """Coerce ``v`` to float, returning None on failure or empty input."""
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except TypeError, ValueError:
         return None

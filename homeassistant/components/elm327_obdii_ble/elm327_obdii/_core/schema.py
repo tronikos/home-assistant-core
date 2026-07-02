@@ -1,6 +1,8 @@
-"""UOPS - Unified OBD Parameter Schema.
+"""Profile schema - pure dataclasses for the user's PID configuration.
 
-Pure dataclasses. No I/O, no HA imports, no obdii dependency.
+No I/O, no Home Assistant imports, no obdii dependency. These types are
+the JSON-serialized payload stored in
+``config_entry.options[CONF_PROFILE]``.
 """
 
 from dataclasses import asdict, dataclass, field
@@ -9,20 +11,20 @@ from typing import Any
 
 @dataclass
 class CustomPid:
-    """One proprietary (non-standard-Mode-01) parameter.
+    """One proprietary (non-standard-Mode-1) parameter.
 
-    The `id` is independent of `name` so the user can rename a PID
+    The ``id`` is independent of ``name`` so the user can rename a PID
     without orphaning its entity history. Generate once at creation
-    time (e.g. `uuid.uuid4().hex`); never change for the lifetime of
+    time (e.g. ``uuid.uuid4().hex``); never change for the lifetime of
     that PID. Built-in profiles use stable string ids like
-    "egolf-soc-bms" so entity unique-ids survive HA restarts.
+    ``"egolf-soc-bms"`` so entity unique-ids survive HA restarts.
     """
 
     id: str
     name: str
     mode: str  # hex mode byte as text, e.g. "01", "22"
     query: str  # hex PID/DID payload, e.g. "0C", "028C1"
-    formula: str  # canonical UOPS expression source - see compiler.py
+    formula: str  # canonical expression source - see _core/formula.py
     can_header: str | None = None  # ATSH target, e.g. "7E5"; None = adapter default
     can_filter: str | None = (
         None  # ATCRA expected reply id, e.g. "7ED"; None = no filter
@@ -45,19 +47,20 @@ class CustomPid:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CustomPid:
         """Deserialize from a stored dict, ignoring unknown keys for forward-compat."""
-        # Only take fields we know about - forward-compatible if extra
-        # keys appear in stored JSON from a newer integration version.
         known = set(cls.__dataclass_fields__)
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass
 class ProfileConfig:
-    """The whole tracked set, isolated from any upstream schema."""
+    """The whole tracked PID set, isolated from any upstream schema.
 
-    standard_pids: list[str] = field(
-        default_factory=list
-    )  # canonical obdii command names
+    Stored as ``config_entry.options[CONF_PROFILE]``. Standard Mode 01
+    PIDs are referenced by canonical obdii command name; custom PIDs
+    carry their own mode/query/formula.
+    """
+
+    standard_pids: list[str] = field(default_factory=list)
     custom_pids: list[CustomPid] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:

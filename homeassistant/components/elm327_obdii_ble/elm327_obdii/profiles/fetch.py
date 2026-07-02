@@ -1,6 +1,6 @@
 """Fetch WiCAN vehicle profiles from GitHub.
 
-Pure-async helper; takes an aiohttp ClientSession (HA-agnostic).
+Pure-async helper; takes an :class:`aiohttp.ClientSession` (HA-agnostic).
 """
 
 import logging
@@ -17,10 +17,11 @@ WICAN_PROFILES_URL = (
 
 
 async def fetch_wican_profiles(session: ClientSession) -> dict[str, dict[str, Any]]:
-    """Fetch WiCAN's vehicle_profiles.json, return {car_model: raw_dict}.
+    """Fetch WiCAN's ``vehicle_profiles.json`` and return ``{car_model: raw_dict}``.
 
-    Returns {} on any failure (network, parse, shape mismatch). Nothing
-    from the source JSON is persisted; only the translated ProfileConfig is.
+    Returns ``{}`` on any failure (network, parse, shape mismatch).
+    Nothing from the source JSON is persisted; only the translated
+    :class:`ProfileConfig` is.
     """
     try:
         async with session.get(

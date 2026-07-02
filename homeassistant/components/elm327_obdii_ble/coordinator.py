@@ -1,15 +1,20 @@
-"""Polling coordinator for the ELM327 OBD-II BLE integration."""
+"""Polling coordinator for the ELM327 OBD-II BLE integration.
 
-import contextlib
+Thin wrapper around :class:`elm327_obdii.Poller`. The coordinator owns
+the HA-specific concerns (``DataUpdateCoordinator`` lifecycle,
+``async_address_present``, ``async_ble_device_from_address``,
+``UpdateFailed`` translation keys, executor dispatch, dynamic
+``update_interval``) and delegates the polling-domain state and
+orchestration to the library's :class:`Poller` façade.
+"""
+
 from datetime import timedelta
 import logging
-import threading
 import time
 from typing import TYPE_CHECKING, Any
 
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
-from obdii import Connection
 
 from homeassistant.components.bluetooth import (
     async_address_present,
@@ -32,27 +37,20 @@ from .const import (
     CONF_VOLTAGE_ON,
     CONF_XS_POLL,
     DEFAULT_FAST_POLL,
-    DEFAULT_GRACE_PERIOD,
     DEFAULT_SLOW_POLL,
     DEFAULT_UUID_READ,
     DEFAULT_UUID_WRITE,
-    DEFAULT_VOLTAGE_OFF,
-    DEFAULT_VOLTAGE_ON,
     DEFAULT_XS_POLL,
     DOMAIN,
 )
 from .elm327_obdii import (
-    CanContext,
+    Poller,
+    PollerConfig,
     PollingState,
+    PollResult,
     ProfileConfig,
-    QueryItem,
-    build_query_plan_from_uops,
-    check_voltage,
-    create_connection,
-    run_query_plan,
-    scan_supported_pids,
+    TransportError,
 )
-from .elm327_obdii.transport_ble import TransportError
 
 if TYPE_CHECKING:
     from . import Elm327ObdiiConfigEntry
@@ -60,47 +58,48 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-class Elm327ObdiiCoordinator(DataUpdateCoordinator):
-    """Local data coordinator that runs a pre-built UOPS query plan."""
+class Elm327ObdiiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Drives the library :class:`Poller` from HA's polling scheduler."""
 
     def __init__(self, hass: HomeAssistant, entry: Elm327ObdiiConfigEntry) -> None:
-        """Initialize coordinator state machine."""
+        """Initialize the coordinator and build the Poller from the config entry."""
         super().__init__(
-            hass, _LOGGER, name=DOMAIN, update_interval=timedelta(seconds=5)
+            hass,
+            _LOGGER,
+            name=DOMAIN,
+            update_interval=timedelta(seconds=DEFAULT_FAST_POLL),
         )
         self.entry = entry
-        self.data: dict[str, Any] = {}
-        self.state = PollingState.OUT_OF_RANGE
-        self.grace_start: float | None = None
-        self.api: Connection | None = None
-        self._current_context: CanContext | None = None
-        # Lock-free flag for ble_connected — read on the event loop without
-        # acquiring self._lock. Updated only from the executor thread (inside
-        # _sync_update) and disconnect (also via executor). Staleness can extend
-        # up to slow_poll (300s) when the adapter goes out of range.
+        self._poller = Poller(self._build_poller_config(entry))
+        # Lock-free flag read by the event loop (binary_sensor platform).
+        # Updated only from the executor thread (inside _async_update_data's
+        # executor dispatch) and from disconnect(). Staleness can extend up
+        # to slow_poll (300s) when the adapter goes out of range.
         self._ble_connected = False
-        self.consecutive_failures = 0
-        self.last_successful_poll: float | None = None
-        # Two separate debounce timestamps — one for poll-cycle connection
+        # Two separate debounce timestamps - one for poll-cycle connection
         # attempts, one for BLE re-discovery callback. Sharing a single
-        # timestamp caused normal polls to suppress the rapid-refresh-on-arrival
-        # logic (and vice versa).
-        self.last_poll_attempt: float = 0.0
+        # timestamp caused normal polls to suppress the rapid-refresh-on-
+        # arrival logic (and vice versa).
         self.last_rediscovery_attempt: float = 0.0
         self._offline_since: float | None = None
 
-        uops = ProfileConfig.from_dict(self.entry.options.get(CONF_PROFILE, {}))
-        self._query_plan = build_query_plan_from_uops(uops)
-
-        self._lock = threading.Lock()
+    @staticmethod
+    def _build_poller_config(entry: Elm327ObdiiConfigEntry) -> PollerConfig:
+        """Map a config entry's data + options to a :class:`PollerConfig`."""
+        opts = entry.options
+        data = entry.data
+        return PollerConfig(
+            profile=ProfileConfig.from_dict(opts[CONF_PROFILE]),
+            atrv_supported=data[CONF_ATRV_SUPPORTED],
+            voltage_check_enabled=opts[CONF_VOLTAGE_CHECK],
+            voltage_on=opts[CONF_VOLTAGE_ON],
+            voltage_off=opts[CONF_VOLTAGE_OFF],
+            grace_seconds=opts[CONF_GRACE_PERIOD],
+        )
 
     @property
     def ble_connected(self) -> bool:
-        """True if the BLE link to the adapter is up.
-
-        Reads a lock-free flag so the event loop isn't blocked by the
-        executor thread's polling cycle lock.
-        """
+        """True if the BLE link to the adapter is up."""
         return self._ble_connected
 
     @property
@@ -111,24 +110,24 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator):
         still respond to queries during the brief voltage dip that
         triggers the grace window (e.g. during engine crank).
         """
-        return self._ble_connected and self.state in (
+        return self._ble_connected and self._poller.state in (
             PollingState.CAR_ON,
             PollingState.GRACE_PERIOD,
         )
 
     def disconnect(self) -> None:
-        """Safely close the connection from an executor pool thread."""
-        with self._lock:
-            if self.api:
-                with contextlib.suppress(BleakError, OSError, TransportError):
-                    self.api.close()
-                self.api = None
-                self._current_context = None
-            self._ble_connected = False
+        """Close the BLE connection from an executor pool thread."""
+        self._poller.disconnect()
+        self._ble_connected = False
 
     async def async_scan_supported_standard_pids(self) -> list[str]:
-        """Live-scan the ECU for supported Mode 01 PIDs."""
-        if not self.ble_connected:
+        """Live-scan the ECU for supported Mode 01 PIDs.
+
+        Used by the options flow's standard-PID picker. Raises
+        :class:`UpdateFailed` with a translation key if the adapter is
+        out of range or cannot connect.
+        """
+        if not self._ble_connected:
             address = self.entry.data[CONF_ADDRESS]
             ble_device = async_ble_device_from_address(self.hass, address, True)
             if ble_device is None:
@@ -136,24 +135,30 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator):
                     translation_domain=DOMAIN, translation_key="adapter_out_of_range"
                 )
             connected = await self.hass.async_add_executor_job(
-                self._ensure_connected, ble_device
+                self._connect, ble_device
             )
             if not connected:
                 raise UpdateFailed(
                     translation_domain=DOMAIN, translation_key="connect_failed_scan"
                 )
 
-        return await self.hass.async_add_executor_job(self._sync_scan_supported_pids)
+        return await self.hass.async_add_executor_job(
+            self._poller.scan_supported_standard_pids
+        )
 
-    def _sync_scan_supported_pids(self) -> list[str]:
-        """Run the bitmap walk holding the API lock."""
-        with self._lock:
-            if not self.api or not self.api.is_connected():
-                raise UpdateFailed(
-                    translation_domain=DOMAIN,
-                    translation_key="adapter_not_connected_scan",
-                )
-            return scan_supported_pids(self.api)
+    def _connect(self, ble_dev: BLEDevice) -> bool:
+        """Executor-thread helper: open the BLE connection if not already."""
+        uuid_write = self.entry.options.get(
+            CONF_UUID_WRITE,
+            self.entry.data.get(CONF_UUID_WRITE, DEFAULT_UUID_WRITE),
+        )
+        uuid_read = self.entry.options.get(
+            CONF_UUID_READ,
+            self.entry.data.get(CONF_UUID_READ, DEFAULT_UUID_READ),
+        )
+        ok = self._poller.connect(ble_dev, self.hass.loop, uuid_write, uuid_read)
+        self._ble_connected = ok or self._poller.is_connected
+        return ok
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Periodic query trigger."""
@@ -162,7 +167,6 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator):
             if self._offline_since is None:
                 self._offline_since = time.monotonic()
             if time.monotonic() - self._offline_since > 60:
-                self.state = PollingState.OUT_OF_RANGE
                 self.update_interval = timedelta(
                     seconds=self.entry.options.get(CONF_XS_POLL, DEFAULT_XS_POLL)
                 )
@@ -180,134 +184,54 @@ class Elm327ObdiiCoordinator(DataUpdateCoordinator):
                 translation_placeholders={"address": address},
             )
 
-        plan = list(self._query_plan)
-
-        result = await self.hass.async_add_executor_job(
-            self._sync_update, ble_dev, plan
+        result: PollResult | None = await self.hass.async_add_executor_job(
+            self._polled_cycle, ble_dev
         )
 
-        if result.get("failed"):
+        if result is None:
             raise UpdateFailed(
                 translation_domain=DOMAIN, translation_key="polling_failed"
             )
 
-        self.state = result["state"]
-        self.update_interval = result["update_interval"]
-        self.data = result["data"]
-        return self.data
+        self._update_interval_for(result.state)
+        if not result.any_success and result.state == PollingState.CAR_OFF:
+            # Engine off + nothing came back this cycle - surface as a
+            # transient failure so HA marks entities unavailable rather
+            # than showing stale data indefinitely.
+            raise UpdateFailed(
+                translation_domain=DOMAIN, translation_key="polling_failed"
+            )
+        return dict(result.data)
 
-    def _sync_update(
-        self,
-        ble_dev: BLEDevice,
-        plan: list[tuple[CanContext, list[QueryItem]]],
-    ) -> dict[str, Any]:
-        """Thread-safe update cycle executed inside the executor pool."""
-        with self._lock:
-            res_state = self.state
-            res_interval = self.update_interval
-            res_data: dict[str, Any] = dict(self.data)
+    def _polled_cycle(self, ble_dev: BLEDevice) -> PollResult | None:
+        """Executor-thread helper: ensure connected, then run one poll.
 
-            if not self._ensure_connected(ble_dev):
-                self.consecutive_failures += 1
-                return {"failed": True, "error": "Connection to OBD adapter failed"}
+        Returns the :class:`PollResult`, or None if the connection
+        attempt failed (the coordinator surfaces this as
+        :class:`UpdateFailed`).
+        """
+        if not self._poller.is_connected:
+            if not self._connect(ble_dev):
+                return None
+        try:
+            return self._poller.poll_once()
+        except BleakError, TimeoutError, OSError, ConnectionError, TransportError:
+            self._ble_connected = self._poller.is_connected
+            return None
 
-            assert self.api is not None
-
-            try:
-                fast_interval = timedelta(
-                    seconds=self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
-                )
-
-                res_state, res_interval, self.grace_start = self._handle_voltage_check(
-                    fast_interval
-                )
-
-                if res_state != PollingState.CAR_OFF:
-                    data, any_success, self._current_context = run_query_plan(
-                        self.api, plan, self._current_context
-                    )
-                    res_data.update(data)
-                    if any_success:
-                        self.last_successful_poll = time.monotonic()
-
-                self.consecutive_failures = 0
-
-            except (
-                BleakError,
-                TimeoutError,
-                OSError,
-                ConnectionError,
-                TransportError,
-            ) as e:
-                _LOGGER.warning(
-                    "Error during polling cycle, resetting connection: %s", e
-                )
-                with contextlib.suppress(BleakError, OSError, TransportError):
-                    self.api.close()
-                self.api = None
-                self._current_context = None
-                self._ble_connected = False
-                self.consecutive_failures += 1
-                return {"failed": True, "error": str(e)}
-
-            return {
-                "data": res_data,
-                "state": res_state,
-                "update_interval": res_interval,
-                "failed": False,
-            }
-
-    def _handle_voltage_check(
-        self, fast_interval: timedelta
-    ) -> tuple[PollingState, timedelta, float | None]:
-        """Query battery voltage and determine the polling state + interval."""
-        assert self.api is not None
-        state, interval, grace = check_voltage(
-            api=self.api,
-            atrv_supported=self.entry.data.get(CONF_ATRV_SUPPORTED, True),
-            voltage_check_enabled=self.entry.options.get(CONF_VOLTAGE_CHECK, True),
-            on_threshold=self.entry.options.get(CONF_VOLTAGE_ON, DEFAULT_VOLTAGE_ON),
-            off_threshold=self.entry.options.get(CONF_VOLTAGE_OFF, DEFAULT_VOLTAGE_OFF),
-            grace_seconds=self.entry.options.get(
-                CONF_GRACE_PERIOD, DEFAULT_GRACE_PERIOD
-            ),
-            current_state=self.state,
-            grace_start=self.grace_start,
-        )
-        if interval is None:
-            if state == PollingState.CAR_OFF:
-                interval = timedelta(
-                    seconds=self.entry.options.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL)
-                )
-            else:
-                interval = fast_interval
-        return state, interval, grace
-
-    def _ensure_connected(self, ble_dev: BLEDevice) -> bool:
-        """Ensure the BLE OBD-II adapter connection is active."""
-        if self.api and self.api.is_connected():
-            return True
-
-        self.last_poll_attempt = time.monotonic()
-
-        if self.api:
-            with contextlib.suppress(BleakError, OSError, TransportError):
-                self.api.close()
-            self.api = None
-            self._current_context = None
-            self._ble_connected = False
-
-        uuid_write = self.entry.options.get(
-            CONF_UUID_WRITE,
-            self.entry.data.get(CONF_UUID_WRITE, DEFAULT_UUID_WRITE),
-        )
-        uuid_read = self.entry.options.get(
-            CONF_UUID_READ,
-            self.entry.data.get(CONF_UUID_READ, DEFAULT_UUID_READ),
-        )
-        self.api = create_connection(ble_dev, self.hass.loop, uuid_write, uuid_read)
-        if self.api is None:
-            return False
-        self._current_context = None
-        self._ble_connected = True
-        return True
+    def _update_interval_for(self, state: PollingState) -> None:
+        """Map the polling state to the matching ``update_interval``."""
+        if state == PollingState.CAR_OFF:
+            self.update_interval = timedelta(
+                seconds=self.entry.options.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL)
+            )
+        elif state == PollingState.OUT_OF_RANGE:
+            self.update_interval = timedelta(
+                seconds=self.entry.options.get(CONF_XS_POLL, DEFAULT_XS_POLL)
+            )
+        else:
+            # CAR_ON or GRACE_PERIOD - poll fast to catch transient
+            # state changes and the next voltage dip.
+            self.update_interval = timedelta(
+                seconds=self.entry.options.get(CONF_FAST_POLL, DEFAULT_FAST_POLL)
+            )

@@ -1,4 +1,16 @@
-"""Bluetooth Low Energy transport for OBDII."""
+"""Bluetooth Low Energy transport for the ELM327 OBD-II adapter.
+
+Subclasses :class:`obdii.transports.transport_base.TransportBase` to
+provide a :mod:`bleak`-backed sync+async transport with GATT
+notify-based reads, dynamic UUID fallback discovery, and context
+manager support.
+
+The sync API (``connect``, ``close``, ``write_bytes``, ``read_bytes``)
+is called from the poller on the executor thread. The async API
+(``async_connect``, ``async_close``, ``_write``) runs on the event
+loop, dispatched via :meth:`_run_coro` which uses
+:func:`asyncio.run_coroutine_threadsafe`.
+"""
 
 import asyncio
 from collections.abc import Coroutine

@@ -1,6 +1,5 @@
 """Set up the ELM327 OBD-II BLE integration."""
 
-import contextlib
 import logging
 import time
 from typing import Final
@@ -10,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import DEBOUNCE_COOLDOWN, DOMAIN, PLATFORMS
 from .coordinator import Elm327ObdiiCoordinator
@@ -30,13 +30,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: Elm327ObdiiConfigEntry) 
     coordinator = Elm327ObdiiCoordinator(hass, entry)
     entry.runtime_data = coordinator
 
-    # First refresh - suppress exceptions so entities still register
-    # (as unavailable) if the car is off or out of range at startup.
-    # async_config_entry_first_refresh() converts UpdateFailed to
-    # ConfigEntryNotReady internally, so we must catch Exception to
-    # prevent setup from blocking on transient adapter failures.
-    with contextlib.suppress(Exception):
+    # First refresh - let UpdateFailed propagate so HA marks the entry
+    # as not ready (and retries with backoff) instead of swallowing
+    # programming errors. async_config_entry_first_refresh already
+    # converts UpdateFailed to ConfigEntryNotReady internally.
+    try:
         await coordinator.async_config_entry_first_refresh()
+    except UpdateFailed:
+        _LOGGER.debug(
+            "First refresh failed for %s - entities will register as unavailable",
+            entry.title,
+        )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
