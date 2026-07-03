@@ -9,14 +9,10 @@ from typing import Final
 from obdii import Command, Connection, commands
 
 RECOMMENDED_DEFAULTS: Final[list[str]] = [
-    "ENGINE_SPEED",
-    "VEHICLE_SPEED",
     "ENGINE_COOLANT_TEMP",
     "AMBIENT_AIR_TEMP",
-    "ENGINE_LOAD",
     "FUEL_LEVEL",
     "VEHICLE_VOLTAGE",
-    "MAF_RATE",
     "ENGINE_RUN_TIME",
 ]
 

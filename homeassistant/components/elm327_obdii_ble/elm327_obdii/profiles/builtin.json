@@ -5,14 +5,10 @@
       "description": "Standard SAE J1979 Mode 01 parameters. Use this when no vehicle-specific profile is available, or when you only want the basic parameters every OBD-II-compliant vehicle supports.",
       "name": "Generic OBD-II (Mode 01)",
       "standard_pids": [
-        "ENGINE_SPEED",
-        "VEHICLE_SPEED",
         "ENGINE_COOLANT_TEMP",
         "AMBIENT_AIR_TEMP",
-        "ENGINE_LOAD",
         "FUEL_LEVEL",
         "VEHICLE_VOLTAGE",
-        "MAF_RATE",
         "ENGINE_RUN_TIME"
       ]
     },
