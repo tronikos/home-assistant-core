@@ -140,6 +140,29 @@ def extract_voltage(raw_response: bytes) -> float | None:
         return None
 
 
+def extract_protocol_number(raw_response: bytes) -> str | None:
+    r"""Parse the protocol number from an ``ATDPN`` raw response.
+
+    ``ATDPN`` returns just a number (no ``OK``), so the raw response is
+    typically ``b"6\r\r>"`` or similar. The number is a single digit
+    1-9 or letter A-C.
+
+    Echo-safe: if the adapter still has command echo on (``ATE1``), the
+    response looks like ``b"ATDPN\r6\r\r>"`` - the echoed command line
+    is stripped before parsing so we don't misread ``A`` (from "ATDPN")
+    as the protocol.
+    """
+    text = raw_response.decode("utf-8", errors="ignore")
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.upper().startswith("AT"):
+            continue
+        for ch in line:
+            if ch.isalnum():
+                return ch.upper()
+    return None
+
+
 def is_hex(s: str) -> bool:
     """True if ``s`` is a non-empty string of hex digits (no ``0x`` prefix)."""
     if not s:

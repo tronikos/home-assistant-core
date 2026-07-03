@@ -27,7 +27,7 @@ from obdii import Command, Connection, Mode, Response
 from obdii.transports.transport_base import TransportBase
 
 from ._core.can_context import CanContext, context_for_custom_pid
-from ._core.elm327_parsing import extract_voltage
+from ._core.elm327_parsing import extract_protocol_number, extract_voltage
 from ._core.formula import make_evaluator
 from ._core.query_items import (
     CustomQueryItem,
@@ -178,7 +178,9 @@ class Poller:
                 any_success = False
                 if new_state != PollingState.CAR_OFF:
                     data, any_success, self._current_context = _run_query_plan(
-                        self._api, self._query_plan, self._current_context
+                        self._api,
+                        self._query_plan,
+                        self._current_context,
                     )
 
                 return PollResult(
@@ -345,8 +347,25 @@ def _create_connection(
         return None
 
 
-def _apply_can_context(transport: TransportBase, context: CanContext) -> None:
-    """Send the AT commands needed to transition to ``context``."""
+def _apply_can_context(
+    transport: TransportBase,
+    context: CanContext,
+    api: Connection,
+) -> None:
+    """Send the AT commands needed to transition to ``context``.
+
+    The default :class:`CanContext()` (all fields None) means "adapter
+    default addressing" - which must actively clear any previously-set
+    ATSH/ATCRA, otherwise a custom PID's header/filter persists into
+    the next group's standard-PID pass and breaks every Mode 01 query.
+    The reset header is protocol-dependent (11-bit vs 29-bit CAN), so
+    the active protocol is probed lazily via :func:`_detect_protocol`
+    at reset time - by then the adapter has locked onto whatever
+    protocol the profile init or the last group's ``extra_init`` set.
+    """
+    if context.header is None and context.filter is None and not context.extra_init:
+        _reset_to_default_addressing(transport, api)
+        return
     if context.header is not None:
         _send_at(transport, f"ATSH{context.header}")
     if context.filter is not None:
@@ -356,6 +375,59 @@ def _apply_can_context(transport: TransportBase, context: CanContext) -> None:
             cmd = cmd.strip()
             if cmd:
                 _send_at(transport, cmd)
+
+
+def _reset_to_default_addressing(transport: TransportBase, api: Connection) -> None:
+    """Clear any custom ATSH/ATCRA so standard Mode 01 queries work again.
+
+    ``ATCRA`` with no argument clears the receive filter (protocol-
+    agnostic). The header reset depends on the active protocol because
+    the ELM327 interprets ``ATSH<n>`` differently on 11-bit vs 29-bit
+    CAN - sending ``ATSH7DF`` on a 29-bit protocol (e.g. ``ATSP7``)
+    silently sets the 29-bit header to ``000007DF``, not the broadcast
+    address, so the ECU never sees the query.
+
+    Protocol numbers (from ``ATDPN``, probed lazily here so the value
+    reflects whatever the last group's init left active):
+      6, 8 = 11-bit CAN  -> ``ATSH7DF``  (functional broadcast)
+      7, 9 = 29-bit CAN  -> ``ATSH18DB33F1``  (functional broadcast)
+      others (1-5, A-C, None)  = ``ATD``  (set all defaults; heavy but correct)
+    """
+    _send_at(transport, "ATCRA")
+    protocol = _detect_protocol(api)
+    if protocol in ("6", "8"):
+        _send_at(transport, "ATSH7DF")
+    elif protocol in ("7", "9"):
+        _send_at(transport, "ATSH18DB33F1")
+    else:
+        # Unknown or non-CAN protocol - ATD is the only safe universal
+        # reset. The caller's profile-level init (ATSPn/ATSTn) must be
+        # re-issued on the next connect; we accept that cost here because
+        # misaddressed queries are worse than a stale timeout setting.
+        _LOGGER.warning(
+            "Unknown ELM327 protocol %r - issuing ATD to reset addressing; "
+            "profile-level init should be re-applied on next connect",
+            protocol,
+        )
+        _send_at(transport, "ATD")
+
+
+def _detect_protocol(api: Connection) -> str | None:
+    """Query ``ATDPN`` and return the protocol number as a single-char string.
+
+    Returns None if the adapter doesn't respond or returns an unparsable
+    value. Parsing is delegated to :func:`extract_protocol_number` so the
+    echo-stripping and noise-handling logic lives alongside the other
+    ELM327 response parsers in :mod:`elm327_obdii._core.elm327_parsing`.
+    """
+    try:
+        resp: Response[Any] = api.query(Command(Mode.AT, "DPN"))
+    except (BleakError, TimeoutError, OSError, TransportError) as err:
+        _LOGGER.debug("ATDPN query failed, assuming unknown protocol: %s", err)
+        return None
+    if not resp or not resp.raw:
+        return None
+    return extract_protocol_number(resp.raw)
 
 
 def _send_at(transport: TransportBase, command: str) -> None:
@@ -374,7 +446,11 @@ def _run_query_plan(
 ) -> tuple[dict[str, Any], bool, CanContext | None]:
     """Walk the query plan, switching CAN context only between groups.
 
-    Returns ``(data, any_success, new_current_context)``.
+    Returns ``(data, any_success, new_current_context)``. The plan's
+    "default-first" ordering (see :func:`build_query_plan`) means the
+    cursor carried over from the previous cycle is typically already
+    the default context, so no reset fires at the start of a cycle -
+    only on actual custom -> default transitions within a cycle.
     """
     res_data: dict[str, Any] = {}
     any_success = False
@@ -382,7 +458,7 @@ def _run_query_plan(
 
     for context, items in plan:
         if context != ctx:
-            _apply_can_context(api.transport, context)
+            _apply_can_context(api.transport, context, api)
             ctx = context
 
         for item in items:
