@@ -89,8 +89,11 @@ def obdb_repo_name(make: str, model: str) -> str:
 
     OBDb repos are named ``<Make>-<Model>`` with spaces replaced by
     hyphens, e.g. ``Volkswagen-e-Golf``, ``Hyundai-IONIQ-5``.
+    When model is empty (e.g. ``VauxhallOpel``), the repo name is
+    just the make with no trailing hyphen.
     """
-    return f"{make}-{model}".replace(" ", "-")
+    name = f"{make}-{model}".replace(" ", "-")
+    return name.rstrip("-")
 
 
 async def fetch_obdb_repo_default_json(
