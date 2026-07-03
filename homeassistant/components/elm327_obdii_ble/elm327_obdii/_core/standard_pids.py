@@ -13,7 +13,6 @@ RECOMMENDED_DEFAULTS: Final[list[str]] = [
     "AMBIENT_AIR_TEMP",
     "FUEL_LEVEL",
     "VEHICLE_VOLTAGE",
-    "ENGINE_RUN_TIME",
 ]
 
 for _name in RECOMMENDED_DEFAULTS:

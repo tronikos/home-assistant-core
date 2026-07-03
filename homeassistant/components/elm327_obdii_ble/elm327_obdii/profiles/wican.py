@@ -24,22 +24,18 @@ shape. Reverse de-duplication runs here: any PID whose (mode, query)
 maps to a known Mode 01 standard command is promoted to
 ``standard_pids`` and dropped from the custom parser.
 
-Formula translation converts WiCAN/Torque notation to canonical
-notation:
+Formula translation converts WiCAN string expressions to structured
+``fmt`` dicts. WiCAN formulas operate on the "dirty array" (includes
+PCI + mode echo + PID echo bytes); the ``fmt.bix`` offset is relative
+to the clean payload (data bytes only). The translation accounts for
+this offset: for Mode 22 responses, WiCAN ``B(n)`` maps to
+``bix = (n - 4) * 8``; for Mode 01 responses, ``bix = (n - 3) * 8``.
 
-    WiCAN / Torque        canonical
-    ----------------      --------------
-    B3                    B(3)             single unsigned byte
-    S3                    S(3)             single signed byte
-    [B5:B6]               B(5, 6)          multi-byte unsigned word
-    [S5:S6]               S(5, 6)          multi-byte signed word
-    B3:0                  BIT(3, 0)        single bit
-
-Note: canonical notation uses comma notation ``B(5, 6)`` rather than
-WiCAN's ``[B5:B6]`` colon-slice notation, because ``5:6`` inside a
-Python function call is a syntax error. The slice is unambiguous from
-argument count: 1 argument = single byte, 2 arguments = multi-byte
-slice.
+Formulas that cannot be expressed as a single contiguous bit field with
+linear scaling (multi-field products, non-contiguous bytes, non-linear
+math) are skipped with a warning. This affects ~1% of WiCAN formulas;
+the affected signals are typically available via OBDb with correct
+contiguous offsets.
 """
 
 import logging
@@ -55,14 +51,15 @@ from .._core.standard_pids import is_supported_pids_bitmap
 _LOGGER = logging.getLogger(__name__)
 
 # Matches `AT<cmd> <args>;` where cmd is letters only (SH, CRA, SP, ST, Z, ...)
-# and args is anything up to the next semicolon. Args may be empty (e.g. `ATZ;`).
-# Whitespace between AT and cmd, and between cmd and args, is optional.
-# Note: the cmd group must be letters-only (not [A-Z0-9]+) so that
-# `ATSH7E5` parses as cmd=SH arg=7E5, not cmd=SH7E5 arg=''.
 _WICAN_AT_CMD_RE: re.Pattern[str] = re.compile(
     r"AT\s*([A-Z]+)\s*([^;]*);?",
     re.IGNORECASE,
 )
+
+# WiCAN dirty-array header size per mode.
+# Mode 01/02/09: dirty[0]=PCI, dirty[1]=mode echo, dirty[2]=PID → 3-byte header
+# Mode 22: dirty[0]=PCI, dirty[1]=mode echo, dirty[2:4]=PID echo → 4-byte header
+_DIRTY_HEADER_SIZE = {"01": 3, "02": 3, "09": 3, "22": 4}
 
 
 def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
@@ -79,9 +76,6 @@ def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
     standard: set[str] = set()
     custom: list[CustomPid] = []
 
-    # Optional profile-level init (e.g. ATSP6;ATST96;) - applied to
-    # every PID in the profile. We merge it into each PID's
-    # `init_extra` (deduplicated) so the scheduler groups correctly.
     profile_init = (raw.get("init") or "").strip()
 
     for block in raw.get("pids", []):
@@ -95,16 +89,23 @@ def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
             if profile_init:
                 extra_init = _merge_init_strings(profile_init, extra_init)
 
-            # Reverse de-dup: Mode 01 PIDs with a known standard name get
-            # promoted to standard_pids and dropped from custom_pids.
             std_name = _match_standard_pid(mode, query)
             if std_name:
                 standard.add(std_name)
                 continue
 
             for param in _iter_parameters(block.get("parameters")):
-                formula = _translate_formula(param.get("expression", ""))
-                if not formula:
+                fmt = _parse_wican_formula_to_fmt(param.get("expression", ""), mode)
+                if fmt is None:
+                    _LOGGER.warning(
+                        "Skipping WiCAN PID %s param %r in profile %r: "
+                        "formula %r cannot be expressed as fmt (non-contiguous "
+                        "or multi-field)",
+                        mode + query,
+                        param.get("name"),
+                        car_model,
+                        param.get("expression"),
+                    )
                     continue
                 pid_name = param.get("name") or f"{mode}{query}"
                 pid_id = f"{mode}:{query}:{pid_name}"
@@ -114,7 +115,7 @@ def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
                         name=pid_name,
                         mode=mode,
                         query=query,
-                        formula=formula,
+                        fmt=fmt,
                         can_header=header,
                         can_filter=can_filter,
                         init_extra=extra_init,
@@ -138,12 +139,7 @@ def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
 
 
 class WicanImporter:
-    """Protocol-conforming importer for runtime dispatch.
-
-    Use the module-level :func:`import_wican_profile` function for
-    direct calls. Use this class when you need a uniform
-    :class:`ProfileImporter` interface across multiple importer types.
-    """
+    """Protocol-conforming importer for runtime dispatch."""
 
     def can_handle(self, raw: object) -> bool:
         """Return True if ``raw`` looks like a WiCAN profile dict."""
@@ -157,12 +153,7 @@ class WicanImporter:
 
 
 def _split_wican_command(raw: Any) -> tuple[str, str]:
-    """Split a WiCAN ``pid`` field like ``'22028C1'`` into ``('22', '028C1')``.
-
-    The first 2 chars are the mode (hex byte as text); the rest is the
-    PID/DID payload. Returns ``('', '')`` if the input is too short or
-    not a string.
-    """
+    """Split a WiCAN ``pid`` field like ``'22028C1'`` into ``('22', '028C1')``."""
     if not isinstance(raw, str):
         return ("", "")
     s = raw.strip().upper()
@@ -172,17 +163,7 @@ def _split_wican_command(raw: Any) -> tuple[str, str]:
 
 
 def _parse_pid_init(raw: str | None) -> tuple[str | None, str | None, str | None]:
-    """Parse a WiCAN ``pid_init`` string into ``(header, filter, extra_init)``.
-
-    Example: ``'ATSH7E5;ATCRA7ED;' -> ('7E5', '7ED', None)``.
-    Anything beyond ATSH/ATCRA goes into ``extra_init`` verbatim,
-    semicolon-joined, so the scheduler can group on it as a real value.
-
-    ``AT H0`` (headers off) and ``AT S0`` (spaces off) are filtered out
-    with a warning: the dirty-array parser assumes headers are on and
-    prefers spaces-on framing, and forcing these from a user profile
-    breaks response parsing silently.
-    """
+    """Parse a WiCAN ``pid_init`` string into ``(header, filter, extra_init)``."""
     if not raw:
         return (None, None, None)
     header: str | None = None
@@ -209,13 +190,7 @@ def _parse_pid_init(raw: str | None) -> tuple[str | None, str | None, str | None
 
 
 def _merge_init_strings(a: str, b: str | None) -> str | None:
-    """Merge two init strings, preserving order and dropping duplicates.
-
-    Comparison is done on a whitespace-stripped, uppercased key so
-    ``'ATSP6'`` and ``'at sp 6'`` don't both survive. ``AT H0`` and
-    ``AT S0`` are dropped here too — they break the dirty-array parser
-    (see :func:`_parse_pid_init`).
-    """
+    """Merge two init strings, preserving order and dropping duplicates."""
     parts_a = [p.strip() for p in a.split(";") if p.strip()]
     parts_b = [p.strip() for p in (b or "").split(";") if p.strip()]
     seen: set[str] = set()
@@ -237,16 +212,7 @@ def _merge_init_strings(a: str, b: str | None) -> str | None:
 
 
 def _iter_parameters(raw: object) -> list[dict[str, Any]]:
-    """Yield parameter dicts from a WiCAN ``parameters`` block.
-
-    The WiCAN schema allows ``parameters`` to be either:
-      - a list of dicts (modern):  ``[{"name": ..., "expression": ...}, ...]``
-      - a dict of ``{name: expression}`` (Torque-style shorthand)
-
-    Normalize to list-of-dicts. The Torque-style form loses
-    unit/class/min/max (those fields don't exist in the shorthand),
-    but at least the parameter name and expression survive.
-    """
+    """Normalize the ``parameters`` field to a list of dicts."""
     if isinstance(raw, list):
         return [p for p in raw if isinstance(p, dict)]
     if isinstance(raw, dict):
@@ -257,23 +223,9 @@ def _iter_parameters(raw: object) -> list[dict[str, Any]]:
 
 
 def _match_standard_pid(mode: str, query: str) -> str | None:
-    """If ``(mode, query)`` is a known Mode 01 standard PID, return its canonical name.
-
-    The match is on address (mode + PID hex), not on formula text. If
-    a manufacturer ships a remapped/rescaled version of a standard PID
-    under the same address, the wire command is what determines whether
-    it can be served by the native obdii Mode 01 path - so we promote
-    it to ``standard_pids`` and drop the custom formula. This is the
-    "Reverse De-duplication Strategy" requirement.
-
-    Returns None for non-Mode-01 PIDs (the standard catalog only
-    covers Mode 01), for unknown PIDs, and for the SUPPORTED_PIDS_A..G
-    bitmaps themselves (they're metadata, not user-trackable parameters).
-    """
+    """If ``(mode, query)`` is a known Mode 01 standard PID, return its name."""
     if mode != "01":
         return None
-    # Standard Mode 01 PIDs are 2 hex chars (0x00-0xE0 in 0x20 increments).
-    # Some WiCAN profiles pad the PID with extra zeros; take the first 2.
     pid_hex = query[:2]
     try:
         pid_int = int(pid_hex, 16)
@@ -290,45 +242,214 @@ def _match_standard_pid(mode: str, query: str) -> str | None:
     return cmd.name
 
 
-def _translate_formula(expr: Any) -> str:
-    """Translate WiCAN/Torque notation to canonical notation.
+def _parse_wican_formula_to_fmt(expr: Any, mode: str) -> dict[str, Any] | None:
+    """Translate a WiCAN string expression to a ``fmt`` dict.
 
-    See module docstring for the translation table. Order matters:
-    multi-byte slices (with brackets) first, then single-bit extraction
-    (with ``:``), then plain single-byte references.
+    Returns ``None`` if the formula cannot be expressed as a single
+    contiguous bit field with linear scaling.
+
+    Handles these WiCAN notation forms:
+      - ``B<n>`` → unsigned byte at dirty-array index n
+      - ``S<n>`` → signed byte
+      - ``[B<m>:B<n>]`` → big-endian unsigned multi-byte slice
+      - ``[S<m>:S<n>]`` → big-endian signed multi-byte slice
+      - ``B<n>:<bit>`` → single bit extraction
+      - Manual big-endian words: ``(B<m>*256)+B<m+1>``, ``(B<m><<8)+B<m+1>``,
+        ``(B<m>*65536)+(B<m+1>*256)+B<m+2>``, 4-byte variants
+      - Optional scaling: ``/const``, ``*const``, ``+const``, ``-const``
+
+    The dirty-array byte index is translated to a clean-payload bit
+    offset by subtracting the mode-specific header size (3 for Mode 01,
+    4 for Mode 22) and multiplying by 8.
     """
     if not isinstance(expr, str):
-        return ""
-    s = expr.strip()
+        return None
+    s = expr.strip().replace(" ", "")
     if not s:
-        return ""
+        return None
 
-    # 1. Multi-byte slices: [B5:B6] or [S5:S6] (case-insensitive).
-    #    Strip leading zeros from byte indices (B09 -> B(9), not B(09))
-    #    because Python 3 rejects leading zeros in integer literals.
-    s = re.sub(
-        r"\[\s*([BS])\s*(\d+)\s*:\s*([BS])\s*(\d+)\s*\]",
-        lambda m: f"{m.group(1).upper()}({int(m.group(2))}, {int(m.group(4))})",
-        s,
-        flags=re.IGNORECASE,
-    )
+    header_size = _DIRTY_HEADER_SIZE.get(mode, 4)
 
-    # 2. Single-bit extraction: B3:0 or S3:1 (byte 3, bit 0/1).
-    #    Must come BEFORE the plain B3/S3 form so the `:0` part isn't
-    #    eaten by the single-byte regex first.
-    s = re.sub(
-        r"\b([BS])(\d+):(\d+)\b",
-        lambda m: f"BIT({int(m.group(2))}, {int(m.group(3))})",
-        s,
-        flags=re.IGNORECASE,
-    )
+    # Try each pattern in order of specificity.
+    for parser in (
+        _try_slice,
+        _try_bit_extraction,
+        _try_single_byte,
+        _try_manual_word,
+    ):
+        result = parser(s, header_size)
+        if result is not None:
+            return result
 
-    # 3. Single byte: B3 or S3 (case-insensitive)
-    s = re.sub(
-        r"\b([BS])(\d+)\b",
-        lambda m: f"{m.group(1).upper()}({int(m.group(2))})",
-        s,
-        flags=re.IGNORECASE,
-    )
+    return None
 
-    return s.strip()
+
+def _dirty_to_bix(dirty_index: int, header_size: int) -> int:
+    """Convert a dirty-array byte index to a clean-payload bit offset."""
+    clean_index = dirty_index - header_size
+    if clean_index < 0:
+        return 0
+    return clean_index * 8
+
+
+# [B<m>:B<n>] or [S<m>:S<n>]
+_RE_SLICE = re.compile(r"^\[([BS])(\d+):([BS])(\d+)\](.*)$")
+
+
+def _try_slice(s: str, header_size: int) -> dict[str, Any] | None:
+    """Match ``[B<m>:B<n>]`` with optional scaling suffix."""
+    m = _RE_SLICE.match(s)
+    if not m:
+        return None
+    typ = m.group(1).upper()
+    start = int(m.group(2))
+    end = int(m.group(4))
+    if m.group(3).upper() != typ:
+        return None  # mixed B/S in slice - not expressible
+    if end < start:
+        return None
+    suffix = m.group(5)
+    scaling = _parse_scaling_suffix(suffix)
+    if scaling is None:
+        return None
+    fmt: dict[str, Any] = {
+        "bix": _dirty_to_bix(start, header_size),
+        "len": (end - start + 1) * 8,
+    }
+    if typ == "S":
+        fmt["sign"] = True
+    fmt.update(scaling)
+    return fmt
+
+
+# B<n>:<bit> or S<n>:<bit>
+_RE_BIT = re.compile(r"^([BS])(\d+):(\d+)$")
+
+
+def _try_bit_extraction(s: str, header_size: int) -> dict[str, Any] | None:
+    """Match ``B<n>:<bit>`` (single bit extraction)."""
+    m = _RE_BIT.match(s)
+    if not m:
+        return None
+    byte_idx = int(m.group(2))
+    bit_idx = int(m.group(3))
+    return {
+        "bix": _dirty_to_bix(byte_idx, header_size) + bit_idx,
+        "len": 1,
+    }
+
+
+# B<n> or S<n> with optional scaling
+_RE_SINGLE = re.compile(r"^([BS])(\d+)(.*)$")
+
+
+def _try_single_byte(s: str, header_size: int) -> dict[str, Any] | None:
+    """Match ``B<n>`` or ``S<n>`` with optional scaling suffix."""
+    m = _RE_SINGLE.match(s)
+    if not m:
+        return None
+    typ = m.group(1).upper()
+    idx = int(m.group(2))
+    suffix = m.group(3)
+    scaling = _parse_scaling_suffix(suffix)
+    if scaling is None:
+        return None
+    fmt: dict[str, Any] = {
+        "bix": _dirty_to_bix(idx, header_size),
+        "len": 8,
+    }
+    if typ == "S":
+        fmt["sign"] = True
+    fmt.update(scaling)
+    return fmt
+
+
+# Manual big-endian words: (B<m>*256)+B<m+1>, (B<m><<8)+B<m+1>,
+# 3-byte and 4-byte variants, with optional scaling.
+_RE_WORD2 = re.compile(r"^\(?B(\d+)\*256\)?\+B(\d+)(.*)$")
+_RE_WORD2_SHIFT = re.compile(r"^\(?B(\d+)<<8\)?\+B(\d+)(.*)$")
+_RE_WORD3 = re.compile(r"^\(?B(\d+)\*65536\)?\+\(?B(\d+)\*256\)?\+B(\d+)(.*)$")
+_RE_WORD3_SHIFT = re.compile(r"^\(?B(\d+)<<16\)?\+\(?B(\d+)<<8\)?\+B(\d+)(.*)$")
+_RE_WORD4 = re.compile(
+    r"^\(?B(\d+)<<24\)?\+\(?B(\d+)<<16\)?\+\(?B(\d+)<<8\)?\+B(\d+)(.*)$"
+)
+_RE_WORD4_MUL = re.compile(
+    r"^\(?B(\d+)\*16777216\)?\+\(?B(\d+)\*65536\)?\+\(?B(\d+)\*256\)?\+B(\d+)(.*)$"
+)
+
+
+def _try_manual_word(s: str, header_size: int) -> dict[str, Any] | None:
+    """Match manual big-endian word constructions like ``(B4*256)+B5``."""
+    for pattern, byte_count in (
+        (_RE_WORD4, 4),
+        (_RE_WORD4_MUL, 4),
+        (_RE_WORD3, 3),
+        (_RE_WORD3_SHIFT, 3),
+        (_RE_WORD2, 2),
+        (_RE_WORD2_SHIFT, 2),
+    ):
+        m = pattern.match(s)
+        if not m:
+            continue
+        indices = [int(m.group(i + 1)) for i in range(byte_count)]
+        suffix = m.group(byte_count + 1)
+
+        # Check contiguity: indices must be consecutive ascending.
+        expected = list(range(indices[0], indices[0] + byte_count))
+        if indices != expected:
+            return None  # non-contiguous - not expressible
+
+        scaling = _parse_scaling_suffix(suffix)
+        if scaling is None:
+            return None
+        return {
+            "bix": _dirty_to_bix(indices[0], header_size),
+            "len": byte_count * 8,
+            **scaling,
+        }
+    return None
+
+
+def _parse_scaling_suffix(suffix: str) -> dict[str, float] | None:
+    """Parse an optional scaling suffix like ``/2.5``, ``*1.8+32``, ``-40``.
+
+    Returns ``None`` if the suffix contains operations beyond simple
+    linear scaling (mul/div/add). Returns a dict with keys from
+    ``{"mul", "div", "add"}`` (only present if non-default).
+    """
+    if not suffix:
+        return {}
+
+    # Must be a sequence of */X and +X/-X operations only.
+    # Tokenize: split into operator+value pairs.
+    tokens = re.findall(r"([*/+-])([\d.]+)", suffix)
+    if not tokens:
+        return None
+
+    # Reconstruct to verify the whole suffix was consumed.
+    reconstructed = "".join(op + val for op, val in tokens)
+    if reconstructed != suffix:
+        return None  # unparsable characters remain
+
+    mul = 1.0
+    div = 1.0
+    add = 0.0
+    for op, val in tokens:
+        v = float(val)
+        if op == "*":
+            mul *= v
+        elif op == "/":
+            div *= v
+        elif op == "+":
+            add += v
+        elif op == "-":
+            add -= v
+
+    result: dict[str, float] = {}
+    if mul != 1.0:
+        result["mul"] = mul
+    if div != 1.0:
+        result["div"] = div
+    if add != 0.0:
+        result["add"] = add
+    return result

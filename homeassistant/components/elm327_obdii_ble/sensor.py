@@ -178,28 +178,41 @@ class Elm327ObdiiCustomSensor(Elm327ObdiiEntity, SensorEntity):
         self._attr_name = pid.name
         self._attr_unique_id = f"{config_entry.unique_id}-custom-{pid.id}"
 
-        unit = pid.unit
-        self._attr_native_unit_of_measurement = (
-            None if unit in (None, "none", "None") else unit
-        )
+        # Enumeration sensors (fmt.map) return strings, not numbers.
+        is_enum = bool(pid.fmt.get("map")) if pid.fmt else False
 
-        dc_name = pid.device_class
-        if dc_name == "battery" and self._attr_native_unit_of_measurement in (
-            "V",
-            "v",
-            "Volts",
-            "volts",
-        ):
-            self._attr_device_class = SensorDeviceClass.VOLTAGE
+        unit = pid.unit
+        if is_enum:
+            self._attr_native_unit_of_measurement = None
         else:
-            self._attr_device_class = (
-                _DEVICE_CLASS_MAP.get(dc_name or "") if dc_name else None
+            self._attr_native_unit_of_measurement = (
+                None if unit in (None, "none", "None") else unit
             )
 
-        sc_name = pid.state_class
-        self._attr_state_class = _STATE_CLASS_MAP.get(sc_name) if sc_name else None
-        if self._attr_state_class is None and "ODOMETER" in pid.name.upper():
-            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        if is_enum:
+            # Enumerations: no device_class, no state_class, set options.
+            self._attr_device_class = None
+            self._attr_state_class = None
+            if pid.fmt and isinstance(pid.fmt.get("map"), dict):
+                self._attr_options = sorted(pid.fmt["map"].values(), key=lambda x: x)
+        else:
+            dc_name = pid.device_class
+            if dc_name == "battery" and self._attr_native_unit_of_measurement in (
+                "V",
+                "v",
+                "Volts",
+                "volts",
+            ):
+                self._attr_device_class = SensorDeviceClass.VOLTAGE
+            else:
+                self._attr_device_class = (
+                    _DEVICE_CLASS_MAP.get(dc_name or "") if dc_name else None
+                )
+
+            sc_name = pid.state_class
+            self._attr_state_class = _STATE_CLASS_MAP.get(sc_name) if sc_name else None
+            if self._attr_state_class is None and "ODOMETER" in pid.name.upper():
+                self._attr_state_class = SensorStateClass.TOTAL_INCREASING
 
         extra_attrs: dict[str, float] = {}
         if pid.min_value is not None:
@@ -211,13 +224,16 @@ class Elm327ObdiiCustomSensor(Elm327ObdiiEntity, SensorEntity):
 
     @property
     def native_value(self) -> StateType:
-        """Return the float value computed by the compiled formula."""
+        """Return the value computed by the fmt evaluator."""
         data: dict[str, Any] | None = self.coordinator.data
         if data is None:
             return None
         value = data.get(self._pid.name)
         if value is None:
             return None
+        # Enumeration sensors return strings directly.
+        if isinstance(value, str):
+            return value
         try:
             return float(value)
         except TypeError, ValueError:

@@ -28,7 +28,7 @@ from obdii.transports.transport_base import TransportBase
 
 from ._core.can_context import CanContext, context_for_custom_pid
 from ._core.elm327_parsing import extract_protocol_number, extract_voltage
-from ._core.formula import make_evaluator
+from ._core.fmt_evaluator import FmtValidationError, make_fmt_evaluator
 from ._core.query_items import (
     CustomQueryItem,
     QueryItem,
@@ -300,12 +300,12 @@ def _build_query_plan_from_profile(
             )
             continue
         try:
-            evaluator = make_evaluator(pid.formula)
-        except Exception as err:  # noqa: BLE001
+            evaluator = make_fmt_evaluator(pid.fmt)
+        except (FmtValidationError, Exception) as err:  # noqa: BLE001
             _LOGGER.error(
-                "Custom PID %s has invalid formula %r - skipping: %s",
+                "Custom PID %s has invalid fmt %r - skipping: %s",
                 pid.name,
-                pid.formula,
+                pid.fmt,
                 err,
             )
             continue

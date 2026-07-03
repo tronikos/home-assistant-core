@@ -18,13 +18,21 @@ class CustomPid:
     time (e.g. ``uuid.uuid4().hex``); never change for the lifetime of
     that PID. Built-in profiles use stable string ids like
     ``"egolf-soc-bms"`` so entity unique-ids survive HA restarts.
+
+    The ``fmt`` dict is the structured formula representation (matching
+    OBDb's signal format). It contains bit-extraction fields (``bix``,
+    ``len``), linear scaling (``mul``, ``div``, ``add``), signedness
+    (``sign``), byte-swap for Intel byte order (``blsb``), clamping
+    (``min``, ``max``), null sentinels (``nullmin``, ``nullmax``), and
+    enumerations (``map``). See :mod:`elm327_obdii._core.fmt_evaluator`
+    for the full specification and evaluation order.
     """
 
     id: str
     name: str
     mode: str  # hex mode byte as text, e.g. "01", "22"
     query: str  # hex PID/DID payload, e.g. "0C", "028C1"
-    formula: str  # canonical expression source - see _core/formula.py
+    fmt: dict[str, Any]  # structured formula — see _core/fmt_evaluator.py
     can_header: str | None = None  # ATSH target, e.g. "7E5"; None = adapter default
     can_filter: str | None = (
         None  # ATCRA expected reply id, e.g. "7ED"; None = no filter
@@ -35,10 +43,9 @@ class CustomPid:
     state_class: str | None = None
     min_value: float | None = None
     max_value: float | None = None
+    model_years: list[int] | None = None  # OBDb year filter; None = all years
     expected_bytes: int = 0  # for ELM327 early-return optimization (0 = disabled)
-    source: str = (
-        "manual"  # provenance: "manual" | "import:wican:<car_model>" | "builtin"
-    )
+    source: str = "manual"  # provenance: "manual" | "import:wican:<car_model>" | "import:obdb:<make:model>" | "builtin"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict for storage in HA config entries."""

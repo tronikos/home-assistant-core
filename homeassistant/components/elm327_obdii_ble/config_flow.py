@@ -43,23 +43,25 @@ from .elm327_obdii import (
     RECOMMENDED_DEFAULTS,
     ConnectionTestResult,
     CustomPid,
-    FormulaValidationError,
+    FmtValidationError,
     ProfileConfig,
     all_known_standard_pid_names,
     as_float,
     async_get_characteristics,
     empty_form_defaults,
+    fetch_obdb_matrix,
+    fetch_obdb_repo_default_json,
     fetch_wican_profiles,
+    import_obdb_profile,
     import_wican_profile,
     is_hex,
-    list_builtin_profiles,
-    load_builtin_profile,
     pid_to_form_defaults,
     probe_adapter,
     standard_pid_options,
     user_input_to_form_defaults,
-    validate_formula,
+    validate_fmt,
 )
+from .elm327_obdii.forms import form_input_to_fmt_from_hybrid
 
 if TYPE_CHECKING:
     from . import Elm327ObdiiConfigEntry
@@ -68,6 +70,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _NO_PROFILE = "none"
 _IMPORT_WICAN = "__import_wican__"
+_IMPORT_OBDB = "__import_obdb__"
 _ACTION_ADD = "__add__"
 _ACTION_BACK = "__back__"
 
@@ -111,8 +114,13 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._selected_standard_pids: list[str] = []
         self._scanned_supported: list[str] | None = None
         self._wican_profiles: dict[str, dict[str, Any]] = {}
+        self._obdb_vehicles: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._obdb_repo_default: dict[str, Any] | None = None
+        self._obdb_selected_make: str = ""
+        self._obdb_selected_model: str = ""
         self._discovery_info: BluetoothServiceInfoBleak | None = None
         self._wican_fetch_failed: bool = False
+        self._obdb_fetch_failed: bool = False
 
     async def _test_connection(
         self,
@@ -278,7 +286,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_vehicle(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Pick a built-in profile, none, or choose to import from WiCAN."""
+        """Choose: none (standard PIDs only), import WiCAN, or import OBDb."""
         errors: dict[str, str] = {}
         if user_input is not None:
             choice = user_input["profile"]
@@ -290,29 +298,27 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if choice == _IMPORT_WICAN:
                 return await self.async_step_wican()
 
-            builtin = await self.hass.async_add_executor_job(
-                load_builtin_profile, choice
-            )
-            self._profile_config = builtin if builtin is not None else ProfileConfig()
+            if choice == _IMPORT_OBDB:
+                return await self.async_step_obdb_make()
+
+            # Unknown choice — fall through to standard PIDs.
+            self._profile_config = ProfileConfig()
             return await self.async_step_standard_pids()
 
         if self._wican_fetch_failed:
             errors["base"] = "wican_fetch_failed"
             self._wican_fetch_failed = False
-
-        builtins = await self.hass.async_add_executor_job(list_builtin_profiles)
+        if self._obdb_fetch_failed:
+            errors["base"] = "obdb_fetch_failed"
+            self._obdb_fetch_failed = False
 
         options: list[SelectOptionDict] = [
-            SelectOptionDict(value=_NO_PROFILE, label="None / Standard OBD-II Only")
-        ]
-        options.extend(
-            SelectOptionDict(value=p["name"], label=p["name"]) for p in builtins
-        )
-        options.append(
+            SelectOptionDict(value=_NO_PROFILE, label="None / Standard OBD-II Only"),
+            SelectOptionDict(value=_IMPORT_OBDB, label="Import from OBDb community..."),
             SelectOptionDict(
                 value=_IMPORT_WICAN, label="Import from WiCAN repository..."
-            )
-        )
+            ),
+        ]
 
         return self.async_show_form(
             step_id="vehicle",
@@ -375,6 +381,129 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                 }
             ),
+        )
+
+    async def async_step_obdb_make(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Fetch OBDb matrix and let the user pick a vehicle make.
+
+        Only reached when the user selected "Import from OBDb community..."
+        on the vehicle step. Fetches ``matrix_data.json`` (4.5 MB),
+        groups by ``(make, model)``, and shows a make dropdown.
+        """
+        if user_input is not None:
+            self._obdb_selected_make = user_input["make"]
+            return await self.async_step_obdb_model()
+
+        session = async_get_clientsession(self.hass)
+        self._obdb_vehicles = await fetch_obdb_matrix(session)
+
+        if not self._obdb_vehicles:
+            self._obdb_fetch_failed = True
+            return await self.async_step_vehicle()
+
+        makes = sorted({make for make, _ in self._obdb_vehicles})
+        options = [SelectOptionDict(value=m, label=m) for m in makes]
+
+        return self.async_show_form(
+            step_id="obdb_make",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "make", default=options[0]["value"]
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options, mode=selector.SelectSelectorMode.DROPDOWN
+                        )
+                    )
+                }
+            ),
+        )
+
+    async def async_step_obdb_model(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Let the user pick a model within the selected make."""
+        if user_input is not None:
+            model = user_input["model"]
+            self._obdb_selected_model = model
+            return await self.async_step_obdb_year()
+
+        make = self._obdb_selected_make
+        models = sorted({m for (mk, m) in self._obdb_vehicles if mk == make})
+        options = [SelectOptionDict(value=m, label=m) for m in models]
+
+        return self.async_show_form(
+            step_id="obdb_model",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "model", default=options[0]["value"] if options else ""
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options, mode=selector.SelectSelectorMode.DROPDOWN
+                        )
+                    )
+                }
+            ),
+        )
+
+    async def async_step_obdb_year(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Let the user pick a model year (optional — 'all' skips filtering).
+
+        Fetches the per-vehicle repo ``default.json`` for rax/fcm1/dbgfilter,
+        then imports the profile with year filtering.
+        """
+        make = self._obdb_selected_make
+        model = self._obdb_selected_model
+        key = (make, model)
+        signals = self._obdb_vehicles.get(key, [])
+
+        if user_input is not None:
+            year_str = user_input.get("year", "all")
+            selected_year = int(year_str) if year_str != "all" else None
+
+            session = async_get_clientsession(self.hass)
+            repo_default = await fetch_obdb_repo_default_json(session, make, model)
+
+            self._profile_config = import_obdb_profile(
+                signals,
+                repo_default=repo_default,
+                selected_year=selected_year,
+            )
+            return await self.async_step_standard_pids()
+
+        # Collect available years from signals' modelYears.
+        years: set[int] = set()
+        for sig in signals:
+            my = sig.get("modelYears")
+            if isinstance(my, list) and my:
+                if len(my) == 1:
+                    years.add(my[0])
+                else:
+                    for y in range(my[0], my[-1] + 1):
+                        years.add(y)
+
+        options = [
+            SelectOptionDict(value="all", label="All years"),
+            *(SelectOptionDict(value=str(y), label=str(y)) for y in sorted(years)),
+        ]
+
+        return self.async_show_form(
+            step_id="obdb_year",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("year", default="all"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options, mode=selector.SelectSelectorMode.DROPDOWN
+                        )
+                    )
+                }
+            ),
+            description_placeholders={"vehicle": f"{make} {model}"},
         )
 
     async def async_step_standard_pids(
@@ -679,7 +808,13 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
     async def async_step_custom_pid_edit(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Add or edit a single custom PID, with formula whitelist validation."""
+        """Add or edit a single custom PID using the hybrid fmt editor.
+
+        The form has a formula string field (default) and structured fmt
+        fields (advanced). On save, the string is parsed first; if it
+        doesn't parse, the structured fields are used. If neither
+        produces a valid fmt, an error is shown.
+        """
         errors: dict[str, str] = {}
 
         existing: CustomPid | None = None
@@ -701,13 +836,6 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                     return self._async_save_options()
                 return await self.async_step_custom_pids()
 
-            formula = (user_input["formula"] or "").strip()
-            try:
-                validate_formula(formula)
-            except FormulaValidationError as err:
-                errors["formula"] = "invalid_formula"
-                _LOGGER.debug("Formula validation failed: %s", err)
-
             mode = (user_input["mode"] or "").strip().upper()
             query = (user_input["query"] or "").strip().upper()
             if not is_hex(mode) or len(mode) != 2:
@@ -722,23 +850,34 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
             if can_filter and not is_hex(can_filter):
                 errors["can_filter"] = "invalid_hex"
 
-            if not errors:
+            # Build fmt from the hybrid form (string + structured fields).
+            fmt = form_input_to_fmt_from_hybrid(user_input)
+            if fmt is None:
+                errors["formula"] = "invalid_formula"
+            else:
+                try:
+                    validate_fmt(fmt)
+                except FmtValidationError as err:
+                    errors["formula"] = "invalid_formula"
+                    _LOGGER.debug("fmt validation failed: %s", err)
+
+            if not errors and fmt is not None:
                 pid_id = existing.id if existing is not None else uuid.uuid4().hex
                 pid = CustomPid(
                     id=pid_id,
                     name=(user_input["pid_name"] or "").strip() or "Unnamed",
                     mode=mode,
                     query=query,
-                    formula=formula,
+                    fmt=fmt,
                     can_header=can_header or None,
                     can_filter=can_filter or None,
                     init_extra=(user_input["init_extra"] or "").strip() or None,
                     unit=(user_input["unit"] or "").strip() or None,
                     device_class=user_input["device_class"] or None,
                     state_class=user_input["state_class"] or None,
-                    min_value=as_float(user_input["min_value"]),
-                    max_value=as_float(user_input["max_value"]),
-                    expected_bytes=int(user_input["expected_bytes"] or 0),
+                    min_value=as_float(user_input.get("min_value")),
+                    max_value=as_float(user_input.get("max_value")),
+                    expected_bytes=int(user_input.get("expected_bytes") or 0),
                     source="manual",
                 )
                 if existing is not None:
@@ -751,8 +890,7 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                 self._options[CONF_PROFILE] = self._profile.to_dict()
                 return self._async_save_options()
 
-        # On validation error, preserve the user's submitted input rather
-        # than resetting to stored/empty defaults.
+        # On validation error, preserve the user's submitted input.
         if user_input is not None and errors:
             defaults = user_input_to_form_defaults(user_input)
         else:
@@ -794,6 +932,38 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                         selector.TextSelectorConfig(multiline=True)
                     ),
                     vol.Optional(
+                        "bix", default=defaults["bix"]
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0,
+                            max=512,
+                            step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        "len", default=defaults["len"]
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1,
+                            max=64,
+                            step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional("mul", default=defaults["mul"]): vol.Any(None, float),
+                    vol.Optional("div", default=defaults["div"]): vol.Any(None, float),
+                    vol.Optional("add", default=defaults["add"]): vol.Any(None, float),
+                    vol.Optional("sign", default=defaults["sign"]): bool,
+                    vol.Optional("blsb", default=defaults["blsb"]): bool,
+                    vol.Optional("min", default=defaults["min"]): vol.Any(None, float),
+                    vol.Optional("max", default=defaults["max"]): vol.Any(None, float),
+                    vol.Optional(
+                        "map_text", default=defaults["map_text"]
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(multiline=True)
+                    ),
+                    vol.Optional(
                         "unit", default=defaults["unit"]
                     ): selector.TextSelector(),
                     vol.Optional(
@@ -818,14 +988,14 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                             )
                         ),
                     ),
-                    vol.Optional("min_value", default=defaults["min_value"]): vol.Any(
-                        None, float
-                    ),
-                    vol.Optional("max_value", default=defaults["max_value"]): vol.Any(
-                        None, float
-                    ),
                     vol.Optional(
-                        "expected_bytes", default=defaults["expected_bytes"]
+                        "min_value", default=defaults.get("min_value")
+                    ): vol.Any(None, float),
+                    vol.Optional(
+                        "max_value", default=defaults.get("max_value")
+                    ): vol.Any(None, float),
+                    vol.Optional(
+                        "expected_bytes", default=defaults.get("expected_bytes", 0)
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=0,

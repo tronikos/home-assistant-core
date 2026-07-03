@@ -128,6 +128,54 @@ def extract_dirty_array(raw_response: bytes) -> list[int]:
     return dirty_array
 
 
+def extract_clean_payload(raw_response: bytes, mode: str) -> list[int]:
+    """Parse an ELM327 raw response into the clean payload (data bytes only).
+
+    Strips the CAN header, PCI byte, mode echo, and PID echo — leaving
+    only the data bytes that ``fmt.bix`` offsets are measured against.
+
+    For a Mode 01 response ``7E8 04 41 0C 1A F8``:
+        dirty array = ``[0x04, 0x41, 0x0C, 0x1A, 0xF8]``
+        clean payload = ``[0x1A, 0xF8]``  (2 data bytes after PCI + 41 + 0C)
+
+    For a Mode 22 response ``7ED 05 62 1E 3B 05 31``:
+        dirty array = ``[0x05, 0x62, 0x1E, 0x3B, 0x05, 0x31]``
+        clean payload = ``[0x05, 0x31]``  (2 data bytes after PCI + 62 + 1E3B)
+
+    The PID echo length depends on the mode:
+        Mode 01: 1-byte PID echo → strip 3 bytes (PCI + mode + PID)
+        Mode 02: 1-byte PID echo → strip 3 bytes
+        Mode 22: 2-byte PID echo → strip 4 bytes (PCI + mode + PIDhi + PIDlo)
+        Other:   strip 3 bytes (conservative default)
+
+    Falls back to the dirty array (minus the PCI byte) if the mode
+    echo doesn't match — degrades gracefully on malformed responses.
+    """
+    dirty = extract_dirty_array(raw_response)
+    if not dirty:
+        return []
+
+    # Expect the second byte to be the mode echo (0x40 + mode_int).
+    try:
+        mode_int = int(mode, 16)
+    except ValueError:
+        mode_int = 0
+
+    expected_echo = 0x40 + mode_int
+    if len(dirty) >= 2 and dirty[1] == expected_echo:
+        if mode_int in (0x01, 0x02, 0x09):
+            # 1-byte PID echo
+            return dirty[3:] if len(dirty) > 3 else []
+        if mode_int == 0x22:
+            # 2-byte PID echo
+            return dirty[4:] if len(dirty) > 4 else []
+        # Unknown mode — strip PCI + mode + 1 PID byte as a guess
+        return dirty[3:] if len(dirty) > 3 else []
+
+    # Mode echo mismatch — return everything after the PCI byte.
+    return dirty[1:] if len(dirty) > 1 else []
+
+
 def extract_voltage(raw_response: bytes) -> float | None:
     """Parse a voltage float from an ``AT RV`` raw response."""
     raw_text = raw_response.decode("utf-8", errors="ignore")

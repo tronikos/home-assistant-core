@@ -7,9 +7,10 @@
     },
     "error": {
       "device_not_found": "Could not establish an over-the-air link to the device. Verify it is powered.",
-      "invalid_formula": "The formula contains disallowed characters or syntax. Only digits, math operators (+ - * / // % ** & | ^ ~ << >>), parentheses, commas, and the functions B(n), B(n, m), S(n), S(n, m), BIT(b, n) are permitted.",
+      "invalid_formula": "The formula could not be parsed. Use a simple expression like B(4)/2.55, B(4,5)/4, S(3), or BIT(2,0), or fill in the structured fields (bix, len, mul, div, add) below.",
       "invalid_hex": "Mode and query must be hexadecimal digits only (e.g. mode '22', query '028C1').",
-      "wican_fetch_failed": "Could not fetch vehicle profiles from the WiCAN repository. Check your network connection and try again, or pick a built-in profile."
+      "obdb_fetch_failed": "Could not fetch vehicle profiles from OBDb. Check your network connection and try again.",
+      "wican_fetch_failed": "Could not fetch vehicle profiles from the WiCAN repository. Check your network connection and try again."
     },
     "step": {
       "bluetooth_confirm": {
@@ -30,6 +31,27 @@
         "description": "Select which custom (proprietary) PIDs from the vehicle profile to enable. All are pre-selected; deselect any you don't need.",
         "title": "Select Custom PIDs"
       },
+      "obdb_make": {
+        "data": {
+          "make": "Vehicle make"
+        },
+        "description": "Vehicle makes were fetched from the OBDb community database (obdb.community). Pick your vehicle's make to see available models.",
+        "title": "Import from OBDb — Select Make"
+      },
+      "obdb_model": {
+        "data": {
+          "model": "Vehicle model"
+        },
+        "description": "Select your vehicle model.",
+        "title": "Import from OBDb — Select Model"
+      },
+      "obdb_year": {
+        "data": {
+          "year": "Model year"
+        },
+        "description": "Select your vehicle's model year to filter signals that only apply to certain years. Choose 'All years' if you're unsure or want all signals.\n\nVehicle: {vehicle}",
+        "title": "Import from OBDb — Select Year"
+      },
       "standard_pids": {
         "data": {
           "standard_pids": "Standard OBD-II PIDs"
@@ -48,7 +70,7 @@
         "data": {
           "profile": "Vehicle Profile"
         },
-        "description": "Choose a built-in vehicle profile, or pick 'None / Standard OBD-II Only' if you only want standard Mode 01 PIDs (you can add custom PIDs later via the Options screen). To use a profile from the WiCAN project, select 'Import from WiCAN repository...' - the list will be fetched on the next screen.",
+        "description": "Choose a profile source: 'None / Standard OBD-II Only' for standard Mode 01 PIDs, 'Import from OBDb community' for the obdb.community database (160+ vehicles), or 'Import from WiCAN repository' for the meatpiHQ/wican-fw profiles. You can add custom PIDs later via Options.",
         "title": "Select Vehicle Profile"
       },
       "wican": {
@@ -95,7 +117,7 @@
   },
   "options": {
     "error": {
-      "invalid_formula": "The formula contains disallowed characters or syntax. Only digits, math operators (+ - * / // % ** & | ^ ~ << >>), parentheses, commas, and the functions B(n), B(n, m), S(n), S(n, m), BIT(b, n) are permitted.",
+      "invalid_formula": "The formula could not be parsed. Use a simple expression like B(4)/2.55, B(4,5)/4, S(3), or BIT(2,0), or fill in the structured fields (bix, len, mul, div, add) below.",
       "invalid_hex": "Mode, query, CAN header, and CAN filter must be hexadecimal digits only (e.g. mode '22', query '028C1', header '7E5', filter '7ED'). Leave header/filter blank if not needed."
     },
     "step": {
@@ -111,22 +133,32 @@
       },
       "custom_pid_edit": {
         "data": {
+          "add": "Additive offset",
+          "bix": "Bit offset (bix) — bit position in the response data",
+          "blsb": "Byte-swap (Intel byte order)",
           "can_filter": "CAN receive filter (ATCRA target, e.g. 7ED)",
           "can_header": "CAN header (ATSH target, e.g. 7E5)",
           "device_class": "Measurement type",
+          "div": "Divisor",
           "expected_bytes": "Expected response bytes (ELM327 early-return optimization, 0 = disabled)",
-          "formula": "Formula (e.g. B(0) / 2.55, B(5, 6) / 100, S(3) * 1.8 + 32, BIT(2, 0))",
+          "formula": "Formula (shorthand: B(4)/2.55, B(4,5)/4, S(3), BIT(2,0))",
           "init_extra": "Extra AT commands (semicolon-separated, e.g. ATST32)",
-          "max_value": "Maximum value",
-          "min_value": "Minimum value",
+          "len": "Bit length (len) — number of bits to extract",
+          "map_text": "Enumeration map (one per line: 0=Off, 1=On)",
+          "max": "Clamp maximum (in fmt)",
+          "max_value": "Maximum value (display)",
+          "min": "Clamp minimum (in fmt)",
+          "min_value": "Minimum value (display)",
           "mode": "Mode (hex, e.g. 01, 22)",
+          "mul": "Multiplier",
           "pid_name": "Display name",
           "query": "PID hex payload (e.g. 028C1)",
           "remove": "Remove this custom PID",
+          "sign": "Signed (two's complement)",
           "state_class": "Measurement behavior",
           "unit": "Unit of measurement"
         },
-        "description": "**{action}: {pid_name}**\n\nFormulas use the integration's canonical notation:\n• `B(n)` - unsigned byte at index n\n• `B(n, m)` - big-endian unsigned word, bytes n..m inclusive\n• `S(n)` / `S(n, m)` - signed equivalents\n• `BIT(b, n)` - single bit n of byte b\n\nOperators: `+ - * / // % ** & | ^ ~ << >>`\n\nThe formula is validated against a strict whitelist before saving - no attribute access, function calls (other than B/S/BIT), or names are permitted.",
+        "description": "**{action}: {pid_name}**\n\nEnter a formula shorthand (e.g. `B(4)/2.55`) OR fill in the structured fields below. The shorthand parses to the structured fields on save.\n\n**Shorthand notation:**\n• `B(n)` — unsigned byte at index n\n• `B(n, m)` — big-endian unsigned word, bytes n..m\n• `S(n)` / `S(n, m)` — signed equivalents\n• `BIT(b, n)` — single bit n of byte b\n• Optional `/const` or `*const` suffix\n\n**Structured fields** (for advanced cases: enumerations, sub-byte fields, byte-swap):\n• bix — bit offset from start of data\n• len — bit length (1-64)\n• mul/div/add — linear scaling\n• sign — two's complement\n• blsb — byte-swap (Intel byte order)\n• min/max — clamping\n• map_text — enumeration (one `key=value` per line)",
         "title": "Add / Edit Custom PID"
       },
       "custom_pids": {

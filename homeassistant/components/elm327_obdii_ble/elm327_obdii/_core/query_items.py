@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .can_context import CanContext
-from .elm327_parsing import extract_dirty_array
+from .elm327_parsing import extract_clean_payload
 from .schema import CustomPid
 
 
@@ -69,19 +69,17 @@ class StandardQueryItem:
 
 @dataclass
 class CustomQueryItem:
-    """A custom PID query - uses the compiled formula evaluator.
+    """A custom PID query - uses the structured ``fmt`` evaluator.
 
-    Uses :func:`extract_dirty_array(resp.raw) <elm327_obdii._core.elm327_parsing.extract_dirty_array>`
-    rather than ``resp.unparsed`` because custom PID formulas are
-    authored against the ELM327's raw text output (the "dirty array"
-    that includes PCI bytes, mode echoes, and PID echoes). py-obdii's
-    ``unparsed`` strips those bytes, which would make every formula's
-    byte indices wrong.
+    Uses :func:`extract_clean_payload(resp.raw, mode)
+    <elm327_obdii._core.elm327_parsing.extract_clean_payload>` to strip
+    the CAN header, PCI byte, mode echo, and PID echo, leaving only the
+    data bytes that ``fmt.bix`` offsets are measured against.
     """
 
     pid: CustomPid
     command: Any  # obdii.Command - built from pid.mode + pid.query
-    evaluator: Callable[[list[int]], float | None]
+    evaluator: Callable[[list[int]], float | str | None]
     context: CanContext
 
     @property
@@ -89,8 +87,8 @@ class CustomQueryItem:
         """Return the custom PID's display name."""
         return self.pid.name
 
-    def execute(self, connection: Any) -> float | None:
-        """Query the custom PID, build the dirty array, evaluate the formula."""
+    def execute(self, connection: Any) -> float | str | None:
+        """Query the custom PID, build the clean payload, evaluate the fmt."""
         resp = connection.query(self.command)
         if resp is None:
             return None
@@ -99,10 +97,10 @@ class CustomQueryItem:
             return None
         if b"BUFFER FULL" in raw:
             return None
-        dirty_array = extract_dirty_array(raw)
-        if not dirty_array:
+        clean = extract_clean_payload(raw, self.pid.mode)
+        if not clean:
             return None
-        return self.evaluator(dirty_array)
+        return self.evaluator(clean)
 
 
 def build_query_plan(
