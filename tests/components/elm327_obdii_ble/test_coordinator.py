@@ -286,6 +286,9 @@ async def test_coordinator_transport_error_after_success(
     with mock_poller_car_on() as poller:
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
+        # Ensure at least one poll has completed
+        await mock_config_entry.runtime_data._async_poll()
+        await hass.async_block_till_done()
 
     coordinator = mock_config_entry.runtime_data
     assert coordinator._was_unavailable is False
