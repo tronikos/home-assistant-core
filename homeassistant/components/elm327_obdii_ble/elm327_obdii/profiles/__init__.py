@@ -11,5 +11,3 @@ Nothing from the source JSON is persisted or redistributed; only the
 resulting :class:`ProfileConfig` is stored in the user's HA config
 entry.
 """
-
-from .._core.schema import ProfileConfig as ProfileConfig

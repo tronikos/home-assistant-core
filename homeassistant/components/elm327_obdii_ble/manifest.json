@@ -12,6 +12,6 @@
   "integration_type": "device",
   "iot_class": "local_polling",
   "loggers": ["elm327_obdii"],
-  "quality_scale": "bronze",
+  "quality_scale": "silver",
   "requirements": ["py-obdii==0.10.3b0"]
 }

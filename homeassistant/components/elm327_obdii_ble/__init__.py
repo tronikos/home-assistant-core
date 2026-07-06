@@ -8,7 +8,7 @@ from homeassistant.components.bluetooth import BluetoothReachabilityIntent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import DOMAIN, PLATFORMS
 from .coordinator import Elm327ObdiiCoordinator
@@ -20,12 +20,6 @@ type Elm327ObdiiConfigEntry = ConfigEntry[Elm327ObdiiCoordinator]
 
 async def async_setup_entry(hass: HomeAssistant, entry: Elm327ObdiiConfigEntry) -> bool:
     """Set up this integration from a config entry."""
-    if not entry.unique_id:
-        raise ConfigEntryError(
-            translation_domain=DOMAIN,
-            translation_key="missing_unique_id",
-        )
-
     address: str = entry.data[CONF_ADDRESS]
     ble_device = bluetooth.async_ble_device_from_address(hass, address.upper(), True)
     if not ble_device:

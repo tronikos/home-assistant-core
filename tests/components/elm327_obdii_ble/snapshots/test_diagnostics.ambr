@@ -1,0 +1,77 @@
+# serializer version: 1
+# name: test_diagnostics
+  dict({
+    'coordinator': dict({
+      'data': dict({
+        'FUEL_TYPE': 'Gasoline',
+      }),
+      'polling_state': 'car_on',
+      'voltage': 14.2,
+    }),
+    'entry': dict({
+      'data': dict({
+        'address': '**REDACTED**',
+        'atrv_supported': True,
+        'uuid_read': '**REDACTED**',
+        'uuid_write': '**REDACTED**',
+      }),
+      'disabled_by': None,
+      'domain': 'elm327_obdii_ble',
+      'minor_version': 1,
+      'options': dict({
+        'profile': dict({
+          'custom_pids': list([
+          ]),
+          'standard_pids': list([
+            'FUEL_TYPE',
+          ]),
+        }),
+        'voltage_check': True,
+        'voltage_grace_seconds': 30,
+        'voltage_off_threshold': 12.8,
+        'voltage_on_threshold': 13.1,
+      }),
+      'pref_disable_new_entities': False,
+      'pref_disable_polling': False,
+      'source': 'user',
+      'subentries': list([
+      ]),
+      'title': 'Mock Title',
+      'unique_id': 'aa:bb:cc:dd:ee:ff',
+      'version': 1,
+    }),
+    'service_info': dict({
+      'address': '**REDACTED**',
+      'advertisement': list([
+        'OBDII',
+        dict({
+        }),
+        dict({
+        }),
+        list([
+          '0000fff0-0000-1000-8000-00805f9b34fb',
+        ]),
+        -127,
+        -60,
+        list([
+          list([
+          ]),
+        ]),
+      ]),
+      'connectable': True,
+      'device': '**REDACTED**',
+      'manufacturer_data': dict({
+      }),
+      'name': '**REDACTED**',
+      'raw': None,
+      'rssi': -60,
+      'service_data': dict({
+      }),
+      'service_uuids': list([
+        '0000fff0-0000-1000-8000-00805f9b34fb',
+      ]),
+      'source': '**REDACTED**',
+      'tx_power': -127,
+    }),
+  })
+# ---

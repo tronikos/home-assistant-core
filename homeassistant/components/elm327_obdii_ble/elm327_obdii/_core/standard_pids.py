@@ -136,7 +136,13 @@ def propose_state_class(command: Command) -> str | None:
     else is instantaneous (measurement).
     """
     name = (command.name or "").upper()
-    if "DTC" in name or "STATUS" in name or "_ID" in name:
+    if (
+        "DTC" in name
+        or "STATUS" in name
+        or "_ID" in name
+        or "TYPE" in name
+        or "STANDARDS" in name
+    ):
         return None
     if "ODOMETER" in name or "DISTANCE" in name or "RUN_TIME" in name:
         return "total_increasing"

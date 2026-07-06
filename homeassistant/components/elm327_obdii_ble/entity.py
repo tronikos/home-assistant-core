@@ -1,7 +1,7 @@
 """Common parent class for ELM327 OBD-II BLE entities."""
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from homeassistant.components.bluetooth.passive_update_coordinator import (
     PassiveBluetoothCoordinatorEntity,
@@ -50,6 +50,7 @@ class Elm327ObdiiEntity(PassiveBluetoothCoordinatorEntity[Elm327ObdiiCoordinator
         )
 
     @property
+    @override
     def available(self) -> bool:
         """Always available — entities retain last known value when out of range."""
         return True

@@ -21,12 +21,19 @@
           "uuid_read": "Read (RX) Characteristic UUID",
           "uuid_write": "Write (TX) Characteristic UUID"
         },
+        "data_description": {
+          "uuid_read": "The GATT characteristic to read responses from. Auto-discovered for most adapters.",
+          "uuid_write": "The GATT characteristic to write commands to. Auto-discovered for most adapters."
+        },
         "description": "Auto-discovery failed or no connection could be established. Select the correct Bluetooth read (RX) and write (TX) characteristics discovered on your adapter.",
         "title": "Configure Connection Characteristics"
       },
       "custom_pids_select": {
         "data": {
           "custom_pids": "Custom PIDs from the selected profile"
+        },
+        "data_description": {
+          "custom_pids": "Deselect PIDs you don't need. All are pre-selected."
         },
         "description": "Select which custom (proprietary) PIDs from the vehicle profile to enable. All are pre-selected; deselect any you don't need.",
         "title": "Select Custom PIDs"
@@ -35,12 +42,18 @@
         "data": {
           "make": "Vehicle make"
         },
+        "data_description": {
+          "make": "Select your vehicle's manufacturer."
+        },
         "description": "Vehicle makes were fetched from the OBDb community database (obdb.community). Pick your vehicle's make to see available models.",
         "title": "Import from OBDb — Select Make"
       },
       "obdb_model": {
         "data": {
           "model": "Vehicle model"
+        },
+        "data_description": {
+          "model": "Select your vehicle model."
         },
         "description": "Select your vehicle model.",
         "title": "Import from OBDb — Select Model"
@@ -49,12 +62,18 @@
         "data": {
           "year": "Model year"
         },
+        "data_description": {
+          "year": "Choose 'All years' if you're unsure or want all signals."
+        },
         "description": "Select your vehicle's model year to filter signals that only apply to certain years. Choose 'All years' if you're unsure or want all signals.\n\nVehicle: {vehicle}",
         "title": "Import from OBDb — Select Year"
       },
       "standard_pids": {
         "data": {
           "standard_pids": "Standard OBD-II PIDs"
+        },
+        "data_description": {
+          "standard_pids": "Select which standard Mode 01 PIDs to poll. Pre-selected entries are sensible defaults."
         },
         "description": "Select the standard OBD-II parameters this integration should poll from your car. Pre-selected entries are sensible defaults plus any standard PIDs from your chosen vehicle profile.{warning}",
         "title": "Select Standard PIDs"
@@ -63,6 +82,9 @@
         "data": {
           "address": "Bluetooth Address"
         },
+        "data_description": {
+          "address": "The Bluetooth MAC address of your ELM327 adapter. Select from discovered devices or enter manually."
+        },
         "description": "Select your ELM327 Bluetooth device from the discovered list below.",
         "title": "Select ELM327 BLE Device"
       },
@@ -70,12 +92,18 @@
         "data": {
           "profile": "Vehicle Profile"
         },
+        "data_description": {
+          "profile": "Choose 'None' for standard OBD-II PIDs only, or import a vehicle-specific profile from OBDb or WiCAN."
+        },
         "description": "Choose a profile source: 'None / Standard OBD-II Only' for standard Mode 01 PIDs, 'Import from OBDb community' for the obdb.community database (160+ vehicles), or 'Import from WiCAN repository' for the meatpiHQ/wican-fw profiles. You can add custom PIDs later via Options.",
         "title": "Select Vehicle Profile"
       },
       "wican": {
         "data": {
           "profile": "WiCAN Vehicle Profile"
+        },
+        "data_description": {
+          "profile": "Select a vehicle profile from the WiCAN repository."
         },
         "description": "These profiles were fetched from the meatpiHQ/wican-fw repository. After you pick one, it is translated into the integration's internal format and stored locally; nothing from the source JSON is redistributed.",
         "title": "Import from WiCAN Repository"
@@ -108,9 +136,6 @@
     "device_not_found": {
       "message": "BLE device not found for address {address}: {reason}"
     },
-    "missing_unique_id": {
-      "message": "Device registration failed: Unique Bluetooth MAC address is missing."
-    },
     "polling_failed": {
       "message": "Polling cycle failed"
     }
@@ -128,22 +153,28 @@
           "voltage_off_threshold": "Ignition off threshold (V)",
           "voltage_on_threshold": "Ignition on threshold (V)"
         },
+        "data_description": {
+          "voltage_check": "When enabled, the adapter voltage is checked via AT RV before each poll cycle to determine if the car is on or off.",
+          "voltage_grace_seconds": "How long to keep polling after the voltage drops below the off threshold, to handle brief voltage dips.",
+          "voltage_off_threshold": "Voltage below which the car is considered off (after the grace period).",
+          "voltage_on_threshold": "Voltage above which the car is considered on."
+        },
         "description": "Configure ignition voltage thresholds to protect your vehicle's 12V auxiliary battery. Polling intervals are fixed and adapt automatically to the vehicle's state (running / off / out of range).",
         "title": "Battery Protection"
       },
       "custom_pid_edit": {
         "data": {
           "add": "Additive offset",
-          "bix": "Bit offset (bix) — bit position in the response data",
+          "bix": "Bit offset (bix)",
           "blsb": "Byte-swap (Intel byte order)",
           "can_filter": "CAN receive filter (ATCRA target, e.g. 7ED)",
           "can_header": "CAN header (ATSH target, e.g. 7E5)",
           "device_class": "Measurement type",
           "div": "Divisor",
-          "expected_bytes": "Expected response bytes (ELM327 early-return optimization, 0 = disabled)",
+          "expected_bytes": "Expected response bytes (0 = disabled)",
           "formula": "Formula (shorthand: B(4)/2.55, B(4,5)/4, S(3), BIT(2,0))",
           "init_extra": "Extra AT commands (semicolon-separated, e.g. ATST32)",
-          "len": "Bit length (len) — number of bits to extract",
+          "len": "Bit length (len)",
           "map_text": "Enumeration map (one per line: 0=Off, 1=On)",
           "max": "Clamp maximum (in fmt)",
           "max_value": "Maximum value (display)",
@@ -158,12 +189,33 @@
           "state_class": "Measurement behavior",
           "unit": "Unit of measurement"
         },
+        "data_description": {
+          "add": "Added after mul/div scaling.",
+          "bix": "Bit position from the start of the response data bytes.",
+          "blsb": "Reverses byte order before bit extraction. Use for Intel-format signals.",
+          "can_filter": "Sets the ELM327 receive filter (ATCRA) to only accept responses from this ECU.",
+          "can_header": "Sets the ELM327 send header (ATSH) to address a specific ECU.",
+          "formula": "Shorthand notation — parsed to the structured fields on save. Leave empty to use structured fields only.",
+          "init_extra": "Extra AT commands sent before this PID's query (e.g. ATST32 for timeout).",
+          "len": "Number of bits to extract (1-64).",
+          "map_text": "Maps raw integer values to labels. One entry per line in 'value=label' format.",
+          "max": "Clamps the result to this maximum after scaling.",
+          "min": "Clamps the result to this minimum after scaling.",
+          "mode": "OBD-II mode byte: 01 for standard PIDs, 22 for enhanced/manufacturer PIDs.",
+          "mul": "Multiplied with the raw value before division.",
+          "query": "The PID/DID hex payload sent after the mode byte.",
+          "sign": "Interprets the extracted bits as two's complement signed.",
+          "unit": "e.g. V, A, %, km/h. Leave blank for unitless values."
+        },
         "description": "**{action}: {pid_name}**\n\nEnter a formula shorthand (e.g. `B(4)/2.55`) OR fill in the structured fields below. The shorthand parses to the structured fields on save.\n\n**Shorthand notation:**\n• `B(n)` — unsigned byte at index n\n• `B(n, m)` — big-endian unsigned word, bytes n..m\n• `S(n)` / `S(n, m)` — signed equivalents\n• `BIT(b, n)` — single bit n of byte b\n• Optional `/const` or `*const` suffix\n\n**Structured fields** (for advanced cases: enumerations, sub-byte fields, byte-swap):\n• bix — bit offset from start of data\n• len — bit length (1-64)\n• mul/div/add — linear scaling\n• sign — two's complement\n• blsb — byte-swap (Intel byte order)\n• min/max — clamping\n• map_text — enumeration (one `key=value` per line)",
         "title": "Add / Edit Custom PID"
       },
       "custom_pids": {
         "data": {
           "action": "Action"
+        },
+        "data_description": {
+          "action": "Add a new custom PID, or select an existing one to edit or delete."
         },
         "description": "Add a new custom PID, or select an existing one to edit or delete it. Custom PIDs are sorted by CAN header so PIDs sharing a header group visually.",
         "title": "Manage Custom PIDs"
@@ -180,6 +232,9 @@
       "standard_pids": {
         "data": {
           "standard_pids": "Standard OBD-II PIDs"
+        },
+        "data_description": {
+          "standard_pids": "Select which standard Mode 01 PIDs to poll. Only PIDs your ECU reports as supported are shown."
         },
         "description": "Select which standard OBD-II parameters this integration should poll from your car. The list is filtered to PIDs your vehicle's ECU reports as supported; if the ECU couldn't be scanned, all known PIDs are shown.{warning}",
         "title": "Select Standard PIDs"

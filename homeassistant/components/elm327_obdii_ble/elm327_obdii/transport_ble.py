@@ -20,7 +20,7 @@ import logging
 from threading import Event, Lock
 from time import monotonic
 from types import TracebackType
-from typing import Any, Self
+from typing import Any, Self, override
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
@@ -75,6 +75,7 @@ class TransportBLE(TransportBase):
         self._data_ready = Event()
         self._loop = loop
 
+    @override
     def __repr__(self) -> str:
         """Return representation of TransportBLE."""
         return f"<TransportBLE {self._ble_device}>"
@@ -201,6 +202,7 @@ class TransportBLE(TransportBase):
             raise TransportError("BLE connection is not established.")
         return self._ble_conn.services
 
+    @override
     def connect(
         self, loop: asyncio.AbstractEventLoop | None = None, **kwargs: Any
     ) -> None:
@@ -216,6 +218,7 @@ class TransportBLE(TransportBase):
             self.close()  # Cleanup on failure
             raise
 
+    @override
     def close(self) -> None:
         """Disconnect from BLE transport."""
         if self._ble_conn is not None:
@@ -224,12 +227,14 @@ class TransportBLE(TransportBase):
         # Wake up any reader threads currently blocked in read_bytes.
         self._data_ready.set()
 
+    @override
     def is_connected(self) -> bool:
         """Verify GATT connection status."""
         if self._ble_conn is None:
             return False
         return self._ble_conn.is_connected
 
+    @override
     def write_bytes(self, query: bytes) -> None:
         """Write raw bytes to target write characteristic."""
         if not self.is_connected():
@@ -239,6 +244,7 @@ class TransportBLE(TransportBase):
         self._data_ready.clear()
         self._run_coro(self._write(query))
 
+    @override
     def read_bytes(self, expected_seq: bytes = b">", size: Any = MISSING) -> bytes:
         """Read bytes until the terminal sequence or size limit is satisfied.
 

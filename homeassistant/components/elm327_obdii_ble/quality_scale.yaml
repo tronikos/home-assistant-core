@@ -1,16 +1,28 @@
 rules:
   # Bronze
-  action-setup: done
+  action-setup:
+    status: exempt
+    comment: |
+      No custom actions
   appropriate-polling: done
   brands: done
   common-modules: done
   config-flow-test-coverage: done
   config-flow: done
   dependency-transparency: done
-  docs-actions: done
+  docs-actions:
+    status: exempt
+    comment: |
+      No custom actions
+  docs-conditions:
+    status: exempt
+    comment: This integration does not have any conditions.
   docs-high-level-description: done
   docs-installation-instructions: done
   docs-removal-instructions: done
+  docs-triggers:
+    status: exempt
+    comment: This integration does not have any triggers.
   entity-event-setup: done
   entity-unique-id: done
   has-entity-name: done
@@ -20,21 +32,32 @@ rules:
   unique-config-entry: done
 
   # Silver
-  action-exceptions: done
+  action-exceptions:
+    status: exempt
+    comment: |
+      No custom actions
   config-entry-unloading: done
   docs-configuration-parameters: done
   docs-installation-parameters: done
-  entity-unavailable: done
+  entity-unavailable:
+    status: exempt
+    comment: |
+      Entities retain last known value when out of range.
   integration-owner: done
   log-when-unavailable: done
   parallel-updates: done
-  reauthentication-flow: todo
+  reauthentication-flow:
+    status: exempt
+    comment: |
+      BLE OBD-II adapters do not use authentication.
   test-coverage: done
-
   # Gold
   devices: done
   diagnostics: done
-  discovery-update-info: done
+  discovery-update-info:
+    status: exempt
+    comment: |
+      BLE MAC addresses do not change.
   discovery: done
   docs-data-update: done
   docs-examples: done
@@ -43,18 +66,33 @@ rules:
   docs-supported-functions: done
   docs-troubleshooting: done
   docs-use-cases: done
-  dynamic-devices: done
+  dynamic-devices:
+    status: exempt
+    comment: |
+      Only one device per config entry.
   entity-category: done
   entity-device-class: done
   entity-disabled-by-default: done
   entity-translations: done
   exception-translations: done
-  icon-translations: done
+  icon-translations:
+    status: exempt
+    comment: |
+      Icons are set via _attr_icon at runtime.
   reconfiguration-flow: todo
-  repair-issues: done
-  stale-devices: done
+  repair-issues:
+    status: exempt
+    comment: |
+      No repairs/issues.
+  stale-devices:
+    status: exempt
+    comment: |
+      Device type integration.
 
   # Platinum
-  async-dependency: done
-  inject-websession: done
+  async-dependency: todo
+  inject-websession:
+    status: exempt
+    comment: |
+      BLE integration, not HTTP.
   strict-typing: done

@@ -1,7 +1,7 @@
 """Config flow for the ELM327 OBD-II BLE integration."""
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 import uuid
 
 from bleak.backends.device import BLEDevice
@@ -138,6 +138,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             5.0,
         )
 
+    @override
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> config_entries.ConfigFlowResult:
@@ -179,6 +180,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.atrv_supported = result.success
         return await self.async_step_vehicle()
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -629,6 +631,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
         config_entry: Elm327ObdiiConfigEntry,
     ) -> config_entries.OptionsFlow:

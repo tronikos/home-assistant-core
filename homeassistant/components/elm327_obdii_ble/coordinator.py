@@ -8,7 +8,7 @@ just supply ``needs_poll_method`` (when to poll) and ``poll_method``
 """
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from bleak.exc import BleakError
 
@@ -75,6 +75,7 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         self._last_state: PollingState = PollingState.OUT_OF_RANGE
         self._voltage: float | None = None
         self._ble_device: BLEDevice | None = None
+        self._was_unavailable: bool = True
 
     @staticmethod
     def _build_poller_config(entry: Elm327ObdiiConfigEntry) -> PollerConfig:
@@ -160,6 +161,7 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         return FAST_POLL_SECONDS
 
     @callback
+    @override
     def _async_handle_bluetooth_event(
         self,
         service_info: BluetoothServiceInfoBleak,
@@ -170,6 +172,7 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         super()._async_handle_bluetooth_event(service_info, change)
 
     @callback
+    @override
     def _async_handle_unavailable(
         self, service_info: BluetoothServiceInfoBleak
     ) -> None:
@@ -189,9 +192,15 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
             self._polled_cycle, ble_device
         )
         if result is None:
+            if not self._was_unavailable:
+                _LOGGER.warning("ELM327 adapter at %s became unavailable", self.address)
+                self._was_unavailable = True
             raise UpdateFailed(
                 translation_domain=DOMAIN, translation_key="polling_failed"
             )
+        if self._was_unavailable:
+            _LOGGER.info("ELM327 adapter at %s is back online", self.address)
+            self._was_unavailable = False
         self._last_state = result.state
         self._voltage = result.voltage
         # Car off is a routine state, not a failure — return cached data

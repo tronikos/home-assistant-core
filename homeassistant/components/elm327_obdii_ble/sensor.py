@@ -1,7 +1,7 @@
 """Sensor platform for the ELM327 OBD-II BLE integration."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -154,6 +154,7 @@ class Elm327ObdiiStandardSensor(Elm327ObdiiEntity, SensorEntity):
         self._attr_state_class = _STATE_CLASS_MAP.get(sc_name) if sc_name else None
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the coordinator's stored value, formatting lists for display."""
         data: dict[str, Any] | None = self.coordinator.data
@@ -190,8 +191,8 @@ class Elm327ObdiiCustomSensor(Elm327ObdiiEntity, SensorEntity):
             )
 
         if is_enum:
-            # Enumerations: no device_class, no state_class, set options.
-            self._attr_device_class = None
+            # Enumerations: set ENUM device class, no state_class, set options.
+            self._attr_device_class = SensorDeviceClass.ENUM
             self._attr_state_class = None
             if pid.fmt and isinstance(pid.fmt.get("map"), dict):
                 self._attr_options = sorted(pid.fmt["map"].values(), key=lambda x: x)
@@ -223,6 +224,7 @@ class Elm327ObdiiCustomSensor(Elm327ObdiiEntity, SensorEntity):
             self._attr_extra_state_attributes = extra_attrs
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the value computed by the fmt evaluator."""
         data: dict[str, Any] | None = self.coordinator.data
@@ -259,6 +261,7 @@ class Elm327ObdiiStateSensor(Elm327ObdiiEntity, SensorEntity):
         self._attr_unique_id = f"{config_entry.unique_id}-adapter-state"
 
     @property
+    @override
     def native_value(self) -> str:
         """Return the current polling state."""
         return self.coordinator.polling_state.value
@@ -284,6 +287,7 @@ class Elm327ObdiiVoltageSensor(Elm327ObdiiEntity, SensorEntity):
         self._attr_unique_id = f"{config_entry.unique_id}-battery-voltage"
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the last measured battery voltage."""
         return self.coordinator.voltage

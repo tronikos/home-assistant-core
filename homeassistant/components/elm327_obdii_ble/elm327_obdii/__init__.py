@@ -15,14 +15,13 @@ Config-flow probing:
     :func:`async_get_characteristics`
 
 Schema / types:
-    :class:`ProfileConfig`, :class:`CustomPid`, :class:`CanContext`,
+    :class:`ProfileConfig`, :class:`CustomPid`,
     :class:`FmtValidationError`
 
 Profile management:
     :func:`fetch_wican_profiles`, :func:`import_wican_profile`,
     :func:`fetch_obdb_matrix`, :func:`fetch_obdb_repo_default_json`,
     :func:`import_obdb_profile`,
-    :class:`WicanImporter`, :class:`ObdbImporter`, :class:`ProfileImporter`,
     :data:`OBDB_MATRIX_URL`
 
 Config-flow UI helpers (produce plain dicts, no HA coupling):
@@ -42,7 +41,6 @@ Anything not listed above lives under ``elm327_obdii._core`` and is an
 implementation detail. Import from the top level, not from ``_core``.
 """
 
-from ._core.can_context import CanContext
 from ._core.elm327_parsing import as_float, is_hex
 from ._core.fmt_evaluator import (
     FmtValidationError,
@@ -76,29 +74,24 @@ from .profiles.fetch import (
     fetch_obdb_repo_default_json,
     fetch_wican_profiles,
 )
-from .profiles.importer import ProfileImporter
-from .profiles.obdb import ObdbImporter, import_obdb_profile
-from .profiles.wican import WicanImporter, import_wican_profile
+from .profiles.obdb import import_obdb_profile
+from .profiles.wican import import_wican_profile
 from .transport_ble import TransportBLE, TransportError
 
 __all__ = [
     "OBDB_MATRIX_URL",
     "RECOMMENDED_DEFAULTS",
     "WICAN_PROFILES_URL",
-    "CanContext",
     "ConnectionTestResult",
     "CustomPid",
     "FmtValidationError",
-    "ObdbImporter",
     "PollResult",
     "Poller",
     "PollerConfig",
     "PollingState",
     "ProfileConfig",
-    "ProfileImporter",
     "TransportBLE",
     "TransportError",
-    "WicanImporter",
     "all_known_standard_pid_names",
     "as_float",
     "async_get_characteristics",
