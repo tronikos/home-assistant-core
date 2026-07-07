@@ -93,7 +93,7 @@ def empty_form_defaults() -> dict[str, Any]:
         "can_header": "",
         "can_filter": "",
         "init_extra": "",
-        "formula": "B(0)",
+        "formula": "",
         "bix": 0,
         "len": 8,
         "mul": 1,

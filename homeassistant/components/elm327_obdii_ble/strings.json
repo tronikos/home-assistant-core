@@ -164,58 +164,81 @@
       },
       "custom_pid_edit": {
         "data": {
-          "add": "Additive offset",
-          "bix": "Bit offset (bix)",
-          "blsb": "Byte-swap (Intel byte order)",
-          "can_filter": "CAN receive filter (ATCRA target, e.g. 7ED)",
-          "can_header": "CAN header (ATSH target, e.g. 7E5)",
-          "device_class": "Measurement type",
-          "div": "Divisor",
-          "expected_bytes": "Expected response bytes (0 = disabled)",
           "formula": "Formula (shorthand: B(4)/2.55, B(4,5)/4, S(3), BIT(2,0))",
-          "init_extra": "Extra AT commands (semicolon-separated, e.g. ATST32)",
-          "len": "Bit length (len)",
-          "map_text": "Enumeration map (one per line: 0=Off, 1=On)",
-          "max": "Clamp maximum (in fmt)",
-          "max_value": "Maximum value (display)",
-          "min": "Clamp minimum (in fmt)",
-          "min_value": "Minimum value (display)",
           "mode": "Mode (hex, e.g. 01, 22)",
-          "mul": "Multiplier",
           "pid_name": "Display name",
           "query": "PID hex payload (e.g. 028C1)",
-          "remove": "Remove this custom PID",
-          "sign": "Signed (two's complement)",
-          "state_class": "Measurement behavior",
-          "unit": "Unit of measurement"
+          "remove": "Remove this custom PID"
         },
         "data_description": {
-          "add": "Added after mul/div scaling.",
-          "bix": "Bit position from the start of the response data bytes.",
-          "blsb": "Reverses byte order before bit extraction. Use for Intel-format signals.",
-          "can_filter": "Sets the ELM327 receive filter (ATCRA) to only accept responses from this ECU.",
-          "can_header": "Sets the ELM327 send header (ATSH) to address a specific ECU.",
-          "device_class": "Sets the sensor type (e.g. voltage, temperature, speed) for proper UI display and statistics.",
-          "div": "Divides the raw value after multiplication. Use 1 for no division.",
-          "expected_bytes": "If non-zero, the ELM327 returns early after receiving this many bytes. 0 disables the optimization.",
           "formula": "Shorthand notation — parsed to the structured fields on save. Leave empty to use structured fields only.",
-          "init_extra": "Extra AT commands sent before this PID's query (e.g. ATST32 for timeout).",
-          "len": "Number of bits to extract (1-64).",
-          "map_text": "Maps raw integer values to labels. One entry per line in 'value=label' format.",
-          "max": "Clamps the result to this maximum after scaling.",
-          "max_value": "Maximum display value. Shown as an extra state attribute (not clamping).",
-          "min": "Clamps the result to this minimum after scaling.",
-          "min_value": "Minimum display value. Shown as an extra state attribute (not clamping).",
           "mode": "OBD-II mode byte: 01 for standard PIDs, 22 for enhanced/manufacturer PIDs.",
-          "mul": "Multiplied with the raw value before division.",
           "pid_name": "The display name for this sensor in Home Assistant.",
           "query": "The PID/DID hex payload sent after the mode byte.",
-          "remove": "Check this box to delete this custom PID.",
-          "sign": "Interprets the extracted bits as two's complement signed.",
-          "state_class": "Sets how the sensor value is tracked over time (measurement for instantaneous, total_increasing for counters).",
-          "unit": "e.g. V, A, %, km/h. Leave blank for unitless values."
+          "remove": "Check this box to delete this custom PID. Takes effect when you submit the form."
         },
-        "description": "**{action}: {pid_name}**\n\nEnter a formula shorthand (e.g. `B(4)/2.55`) OR fill in the structured fields below. The shorthand parses to the structured fields on save.\n\n**Shorthand notation:**\n• `B(n)` — unsigned byte at index n\n• `B(n, m)` — big-endian unsigned word, bytes n..m\n• `S(n)` / `S(n, m)` — signed equivalents\n• `BIT(b, n)` — single bit n of byte b\n• Optional `/const` or `*const` suffix\n\n**Structured fields** (for advanced cases: enumerations, sub-byte fields, byte-swap):\n• bix — bit offset from start of data\n• len — bit length (1-64)\n• mul/div/add — linear scaling\n• sign — two's complement\n• blsb — byte-swap (Intel byte order)\n• min/max — clamping\n• map_text — enumeration (one `key=value` per line)",
+        "description": "**{action}: {pid_name}**\n\nEnter a formula shorthand (e.g. `B(4)/2.55`, `B(4,5)/4`, `S(3)`, `BIT(2,0)`) or leave it empty and use the structured fields in the section below instead.\n\n**Shorthand notation:**\n• `B(n)` — unsigned byte at index n\n• `B(n, m)` — big-endian unsigned word, bytes n..m\n• `S(n)` / `S(n, m)` — signed equivalents\n• `BIT(b, n)` — single bit n of byte b\n• Optional `/const` or `*const` suffix\n\nWhen you submit, you will return to the custom PIDs list. Changes are saved when you pick **< Back to menu**.",
+        "sections": {
+          "addressing": {
+            "data": {
+              "can_filter": "CAN receive filter (ATCRA target, e.g. 7ED)",
+              "can_header": "CAN header (ATSH target, e.g. 7E5)",
+              "init_extra": "Extra AT commands (semicolon-separated, e.g. ATST32)"
+            },
+            "data_description": {
+              "can_filter": "Sets the ELM327 receive filter (ATCRA) to only accept responses from this ECU.",
+              "can_header": "Sets the ELM327 send header (ATSH) to address a specific ECU.",
+              "init_extra": "Extra AT commands sent before this PID's query (e.g. ATST32 for timeout)."
+            },
+            "name": "CAN Addressing"
+          },
+          "display": {
+            "data": {
+              "device_class": "Measurement type",
+              "expected_bytes": "Expected response bytes (0 = disabled)",
+              "max_value": "Maximum value (display)",
+              "min_value": "Minimum value (display)",
+              "state_class": "Measurement behavior",
+              "unit": "Unit of measurement"
+            },
+            "data_description": {
+              "device_class": "Sets the sensor type (e.g. voltage, temperature, speed) for proper UI display and statistics.",
+              "expected_bytes": "If non-zero, the ELM327 returns early after receiving this many bytes. 0 disables the optimization.",
+              "max_value": "Maximum display value. Shown as an extra state attribute (not clamping).",
+              "min_value": "Minimum display value. Shown as an extra state attribute (not clamping).",
+              "state_class": "Sets how the sensor value is tracked over time (measurement for instantaneous, total_increasing for counters).",
+              "unit": "e.g. V, A, %, km/h. Leave blank for unitless values."
+            },
+            "name": "Display & Metadata"
+          },
+          "structured": {
+            "data": {
+              "add": "Additive offset",
+              "bix": "Bit offset (bix)",
+              "blsb": "Byte-swap (Intel byte order)",
+              "div": "Divisor",
+              "len": "Bit length (len)",
+              "map_text": "Enumeration map (one per line: 0=Off, 1=On)",
+              "max": "Clamp maximum (in fmt)",
+              "min": "Clamp minimum (in fmt)",
+              "mul": "Multiplier",
+              "sign": "Signed (two's complement)"
+            },
+            "data_description": {
+              "add": "Added after mul/div scaling.",
+              "bix": "Bit position from the start of the response data bytes.",
+              "blsb": "Reverses byte order before bit extraction. Use for Intel-format signals.",
+              "div": "Divides the raw value after multiplication. Use 1 for no division.",
+              "len": "Number of bits to extract (1-64).",
+              "map_text": "Maps raw integer values to labels. One entry per line in 'value=label' format.",
+              "max": "Clamps the result to this maximum after scaling.",
+              "min": "Clamps the result to this minimum after scaling.",
+              "mul": "Multiplied with the raw value before division.",
+              "sign": "Interprets the extracted bits as two's complement signed."
+            },
+            "name": "Structured fields (alternative to formula)"
+          }
+        },
         "title": "Add / Edit Custom PID"
       },
       "custom_pids": {
@@ -223,9 +246,9 @@
           "action": "Action"
         },
         "data_description": {
-          "action": "Add a new custom PID, or select an existing one to edit or delete."
+          "action": "Pick 'Apply changes and close' to persist your edits, '+ Add new custom PID' to create one, an existing PID to edit it, or '< Back to menu' to discard pending edits and return."
         },
-        "description": "Add a new custom PID, or select an existing one to edit or delete it. Custom PIDs are sorted by CAN header so PIDs sharing a header group visually.",
+        "description": "Add a new custom PID, or select an existing one to edit or delete it. Custom PIDs are sorted by CAN header so PIDs sharing a header group visually.\n\nEdits stay in-memory until you pick **Apply changes and close**. Picking **< Back to menu** discards them.",
         "title": "Manage Custom PIDs"
       },
       "init": {

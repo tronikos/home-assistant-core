@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.elm327_obdii_ble.config_flow import (
     _ACTION_ADD,
+    _ACTION_APPLY,
     _ACTION_BACK,
 )
 from homeassistant.components.elm327_obdii_ble.const import (
@@ -33,6 +34,65 @@ from tests.common import MockConfigEntry
 from tests.components.bluetooth import inject_bluetooth_service_info
 
 DOMAIN = "elm327_obdii_ble"
+
+# Mirror of the SECTION_* constants in config_flow.py.
+SECTION_STRUCTURED = "structured"
+SECTION_ADDRESSING = "addressing"
+SECTION_DISPLAY = "display"
+
+
+def _sectioned_pid_input(**flat) -> dict:
+    """Build a custom_pid_edit form payload from flat kwargs.
+
+    All three sections are always present (possibly empty) — this mirrors
+    the real form, which always serialises every section even if no fields
+    inside were touched. Voluptuous then fills in the inner field defaults
+    (``bix=0``, ``len=8``, ``mul=1``, ``div=1``, ``add=0``, etc.) which
+    ``form_input_to_fmt_from_hybrid`` depends on.
+
+    Optional numeric fields (``mul``, ``div``, ``add``, ``min``, ``max``,
+    ``min_value``, ``max_value``) accept ``None`` because the schema wraps
+    them in ``vol.Any(None, NumberSelector(...))``.
+    """
+    structured: dict = {}
+    for key in (
+        "bix",
+        "len",
+        "sign",
+        "blsb",
+        "mul",
+        "div",
+        "add",
+        "min",
+        "max",
+        "map_text",
+    ):
+        if key in flat:
+            structured[key] = flat.pop(key)
+
+    addressing: dict = {}
+    for key in ("can_header", "can_filter", "init_extra"):
+        if key in flat:
+            addressing[key] = flat.pop(key)
+
+    display: dict = {}
+    for key in (
+        "unit",
+        "device_class",
+        "state_class",
+        "min_value",
+        "max_value",
+        "expected_bytes",
+    ):
+        if key in flat:
+            display[key] = flat.pop(key)
+
+    return {
+        SECTION_STRUCTURED: structured,
+        SECTION_ADDRESSING: addressing,
+        SECTION_DISPLAY: display,
+        **flat,
+    }
 
 
 def create_mock_entry(hass: HomeAssistant, options=None) -> MockConfigEntry:
@@ -979,7 +1039,7 @@ async def test_options_flow_standard_pids_no_coordinator(hass: HomeAssistant) ->
 
 
 async def test_options_flow_custom_pids_back(hass: HomeAssistant) -> None:
-    """Test options flow custom PIDs menu back button."""
+    """Test the custom PIDs list back button returns to the menu without saving."""
     entry = create_mock_entry(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
@@ -989,6 +1049,10 @@ async def test_options_flow_custom_pids_back(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "custom_pids"
 
+    action_selector = result["data_schema"].schema["action"]
+    option_values = [opt["value"] for opt in action_selector.config["options"]]
+    assert _ACTION_APPLY not in option_values
+
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"action": _ACTION_BACK},
@@ -996,20 +1060,49 @@ async def test_options_flow_custom_pids_back(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.MENU
     assert result["step_id"] == "init"
 
+
+async def test_options_flow_custom_pid_apply_after_change(
+    hass: HomeAssistant,
+) -> None:
+    """The Apply option appears (first) after a custom PID change and persists on pick."""
+    entry = create_mock_entry(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {"next_step_id": "battery"},
+        {"next_step_id": "custom_pids"},
     )
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {
-            CONF_VOLTAGE_CHECK: True,
-            CONF_VOLTAGE_ON: 13.1,
-            CONF_VOLTAGE_OFF: 12.2,
-            CONF_GRACE_PERIOD: 30,
-        },
+        {"action": _ACTION_ADD},
+    )
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        _sectioned_pid_input(
+            pid_name="After Apply",
+            mode="22",
+            query="01",
+            formula="A",
+            unit="V",
+            remove=False,
+        ),
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "custom_pids"
+
+    action_selector = result["data_schema"].schema["action"]
+    option_values = [opt["value"] for opt in action_selector.config["options"]]
+    assert option_values[0] == _ACTION_APPLY
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"action": _ACTION_APPLY},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
+
+    profile = ProfileConfig.from_dict(entry.options[CONF_PROFILE])
+    assert len(profile.custom_pids) == 1
+    assert profile.custom_pids[0].name == "After Apply"
 
 
 async def test_options_flow_custom_pid_add_validation_failures(
@@ -1035,32 +1128,16 @@ async def test_options_flow_custom_pid_add_validation_failures(
     ):
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
-            {
-                "pid_name": "Test PID",
-                "mode": "G1",
-                "query": "ZZ",
-                "can_header": "invalid_header",
-                "can_filter": "invalid_filter",
-                "init_extra": "AT SP 6",
-                "formula": "invalid_formula_xyz",
-                "bix": 0,
-                "len": 1,
-                "mul": None,
-                "div": None,
-                "add": None,
-                "sign": False,
-                "blsb": False,
-                "min": None,
-                "max": None,
-                "map_text": "",
-                "unit": "V",
-                "device_class": "",
-                "state_class": "",
-                "min_value": None,
-                "max_value": None,
-                "expected_bytes": 0,
-                "remove": False,
-            },
+            _sectioned_pid_input(
+                pid_name="Test PID",
+                mode="G1",
+                query="ZZ",
+                can_header="invalid_header",
+                can_filter="invalid_filter",
+                init_extra="AT SP 6",
+                formula="invalid_formula_xyz",
+                remove=False,
+            ),
         )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "custom_pid_edit"
@@ -1072,34 +1149,30 @@ async def test_options_flow_custom_pid_add_validation_failures(
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {
-            "pid_name": "Test PID Corrected",
-            "mode": "22",
-            "query": "01",
-            "can_header": "",
-            "can_filter": "",
-            "init_extra": "",
-            "formula": "A",
-            "bix": 0,
-            "len": 1,
-            "mul": None,
-            "div": None,
-            "add": None,
-            "sign": False,
-            "blsb": False,
-            "min": None,
-            "max": None,
-            "map_text": "",
-            "unit": "V",
-            "device_class": "",
-            "state_class": "",
-            "min_value": None,
-            "max_value": None,
-            "expected_bytes": 0,
-            "remove": False,
-        },
+        _sectioned_pid_input(
+            pid_name="Test PID Corrected",
+            mode="22",
+            query="01",
+            can_header="",
+            can_filter="",
+            init_extra="",
+            formula="A",
+            unit="V",
+            remove=False,
+        ),
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "custom_pids"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"action": _ACTION_APPLY},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
+
+    profile = ProfileConfig.from_dict(entry.options[CONF_PROFILE])
+    assert len(profile.custom_pids) == 1
+    assert profile.custom_pids[0].name == "Test PID Corrected"
 
 
 async def test_options_flow_custom_pid_add_fmt_validation_error(
@@ -1123,64 +1196,35 @@ async def test_options_flow_custom_pid_add_fmt_validation_error(
     ):
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
-            {
-                "pid_name": "Test PID",
-                "mode": "22",
-                "query": "01",
-                "can_header": "",
-                "can_filter": "",
-                "init_extra": "",
-                "formula": "A",
-                "bix": 0,
-                "len": 1,
-                "mul": None,
-                "div": None,
-                "add": None,
-                "sign": False,
-                "blsb": False,
-                "min": None,
-                "max": None,
-                "map_text": "",
-                "unit": "V",
-                "device_class": "",
-                "state_class": "",
-                "min_value": None,
-                "max_value": None,
-                "expected_bytes": 0,
-                "remove": False,
-            },
+            _sectioned_pid_input(
+                pid_name="Test PID",
+                mode="22",
+                query="01",
+                formula="A",
+                unit="V",
+                remove=False,
+            ),
         )
     assert result["type"] is FlowResultType.FORM
     assert "formula" in result["errors"]
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {
-            "pid_name": "Test PID Corrected",
-            "mode": "22",
-            "query": "01",
-            "can_header": "",
-            "can_filter": "",
-            "init_extra": "",
-            "formula": "A",
-            "bix": 0,
-            "len": 1,
-            "mul": None,
-            "div": None,
-            "add": None,
-            "sign": False,
-            "blsb": False,
-            "min": None,
-            "max": None,
-            "map_text": "",
-            "unit": "V",
-            "device_class": "",
-            "state_class": "",
-            "min_value": None,
-            "max_value": None,
-            "expected_bytes": 0,
-            "remove": False,
-        },
+        _sectioned_pid_input(
+            pid_name="Test PID Corrected",
+            mode="22",
+            query="01",
+            formula="A",
+            unit="V",
+            remove=False,
+        ),
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "custom_pids"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"action": _ACTION_APPLY},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
@@ -1204,57 +1248,33 @@ async def test_options_flow_custom_pid_lifecycle(hass: HomeAssistant) -> None:
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {
-            "pid_name": "Battery SOC",
-            "mode": "22",
-            "query": "028C",
-            "can_header": "7E4",
-            "can_filter": "7EC",
-            "init_extra": "AT SH 7E4",
-            "formula": "A * 0.5",
-            "bix": 0,
-            "len": 1,
-            "mul": None,
-            "div": None,
-            "add": None,
-            "sign": False,
-            "blsb": False,
-            "min": None,
-            "max": None,
-            "map_text": "",
-            "unit": "%",
-            "device_class": "battery",
-            "state_class": "measurement",
-            "min_value": 0.0,
-            "max_value": 100.0,
-            "expected_bytes": 1,
-            "remove": False,
-        },
+        _sectioned_pid_input(
+            pid_name="Battery SOC",
+            mode="22",
+            query="028C",
+            can_header="7E4",
+            can_filter="7EC",
+            init_extra="AT SH 7E4",
+            formula="A * 0.5",
+            unit="%",
+            device_class="battery",
+            state_class="measurement",
+            min_value=0.0,
+            max_value=100.0,
+            expected_bytes=1,
+            remove=False,
+        ),
     )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "custom_pids"
 
-    profile = ProfileConfig.from_dict(entry.options[CONF_PROFILE])
-    assert len(profile.custom_pids) == 1
-    pid = profile.custom_pids[0]
-    assert pid.name == "Battery SOC"
-    assert pid.mode == "22"
-    assert pid.query == "028C"
-    assert pid.can_header == "7E4"
-    assert pid.can_filter == "7EC"
-    assert pid.unit == "%"
-    assert pid.device_class == "battery"
-    assert pid.state_class == "measurement"
-    assert pid.min_value == 0.0
-    assert pid.max_value == 100.0
-    assert pid.expected_bytes == 1
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {"next_step_id": "custom_pids"},
+    action_selector = result["data_schema"].schema["action"]
+    pid_id = next(
+        opt["value"]
+        for opt in action_selector.config["options"]
+        if opt["value"] not in (_ACTION_ADD, _ACTION_APPLY, _ACTION_BACK)
     )
 
-    pid_id = pid.id
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"action": pid_id},
@@ -1264,47 +1284,26 @@ async def test_options_flow_custom_pid_lifecycle(hass: HomeAssistant) -> None:
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {
-            "pid_name": "Battery SOC Edited",
-            "mode": "22",
-            "query": "028C",
-            "can_header": "7E4",
-            "can_filter": "7EC",
-            "init_extra": "AT SH 7E4",
-            "formula": "A * 0.5",
-            "bix": 0,
-            "len": 1,
-            "mul": None,
-            "div": None,
-            "add": None,
-            "sign": False,
-            "blsb": False,
-            "min": None,
-            "max": None,
-            "map_text": "",
-            "unit": "%",
-            "device_class": "battery",
-            "state_class": "measurement",
-            "min_value": 10.0,
-            "max_value": 90.0,
-            "expected_bytes": 1,
-            "remove": False,
-        },
+        _sectioned_pid_input(
+            pid_name="Battery SOC Edited",
+            mode="22",
+            query="028C",
+            can_header="7E4",
+            can_filter="7EC",
+            init_extra="AT SH 7E4",
+            formula="A * 0.5",
+            unit="%",
+            device_class="battery",
+            state_class="measurement",
+            min_value=10.0,
+            max_value=90.0,
+            expected_bytes=1,
+            remove=False,
+        ),
     )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "custom_pids"
 
-    profile = ProfileConfig.from_dict(entry.options[CONF_PROFILE])
-    assert len(profile.custom_pids) == 1
-    pid = profile.custom_pids[0]
-    assert pid.name == "Battery SOC Edited"
-    assert pid.min_value == 10.0
-    assert pid.max_value == 90.0
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {"next_step_id": "custom_pids"},
-    )
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"action": pid_id},
@@ -1314,32 +1313,37 @@ async def test_options_flow_custom_pid_lifecycle(hass: HomeAssistant) -> None:
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {
-            "pid_name": "Battery SOC Edited",
-            "mode": "22",
-            "query": "028C",
-            "can_header": "7E4",
-            "can_filter": "7EC",
-            "init_extra": "AT SH 7E4",
-            "formula": "A * 0.5",
-            "bix": 0,
-            "len": 1,
-            "mul": None,
-            "div": None,
-            "add": None,
-            "sign": False,
-            "blsb": False,
-            "min": None,
-            "max": None,
-            "map_text": "",
-            "unit": "%",
-            "device_class": "battery",
-            "state_class": "measurement",
-            "min_value": 10.0,
-            "max_value": 90.0,
-            "expected_bytes": 1,
-            "remove": True,
-        },
+        _sectioned_pid_input(
+            pid_name="Battery SOC Edited",
+            mode="22",
+            query="028C",
+            can_header="7E4",
+            can_filter="7EC",
+            init_extra="AT SH 7E4",
+            formula="A * 0.5",
+            unit="%",
+            device_class="battery",
+            state_class="measurement",
+            min_value=10.0,
+            max_value=90.0,
+            expected_bytes=1,
+            remove=True,
+        ),
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "custom_pids"
+
+    action_selector = result["data_schema"].schema["action"]
+    pid_options = [
+        opt["value"]
+        for opt in action_selector.config["options"]
+        if opt["value"] not in (_ACTION_ADD, _ACTION_APPLY, _ACTION_BACK)
+    ]
+    assert pid_options == []
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"action": _ACTION_APPLY},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
@@ -1365,32 +1369,13 @@ async def test_options_flow_custom_pid_remove_non_existent(hass: HomeAssistant) 
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {
-            "pid_name": "Nonexistent",
-            "mode": "22",
-            "query": "028C",
-            "can_header": "",
-            "can_filter": "",
-            "init_extra": "",
-            "formula": "A",
-            "bix": 0,
-            "len": 1,
-            "mul": None,
-            "div": None,
-            "add": None,
-            "sign": False,
-            "blsb": False,
-            "min": None,
-            "max": None,
-            "map_text": "",
-            "unit": "",
-            "device_class": "",
-            "state_class": "",
-            "min_value": None,
-            "max_value": None,
-            "expected_bytes": 0,
-            "remove": True,
-        },
+        _sectioned_pid_input(
+            pid_name="Nonexistent",
+            mode="22",
+            query="028C",
+            formula="A",
+            remove=True,
+        ),
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "custom_pids"
@@ -1400,21 +1385,7 @@ async def test_options_flow_custom_pid_remove_non_existent(hass: HomeAssistant) 
         {"action": _ACTION_BACK},
     )
     assert result["type"] is FlowResultType.MENU
-
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {"next_step_id": "battery"},
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            CONF_VOLTAGE_CHECK: True,
-            CONF_VOLTAGE_ON: 13.1,
-            CONF_VOLTAGE_OFF: 12.2,
-            CONF_GRACE_PERIOD: 30,
-        },
-    )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["step_id"] == "init"
 
 
 async def test_options_flow_custom_pid_edit_invalid_id(hass: HomeAssistant) -> None:
@@ -1439,18 +1410,4 @@ async def test_options_flow_custom_pid_edit_invalid_id(hass: HomeAssistant) -> N
         {"action": _ACTION_BACK},
     )
     assert result["type"] is FlowResultType.MENU
-
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {"next_step_id": "battery"},
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            CONF_VOLTAGE_CHECK: True,
-            CONF_VOLTAGE_ON: 13.1,
-            CONF_VOLTAGE_OFF: 12.2,
-            CONF_GRACE_PERIOD: 30,
-        },
-    )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["step_id"] == "init"

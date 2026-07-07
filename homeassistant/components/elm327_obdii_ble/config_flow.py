@@ -17,6 +17,7 @@ from homeassistant.components.bluetooth import (
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import format_mac
@@ -73,6 +74,11 @@ _IMPORT_WICAN = "__import_wican__"
 _IMPORT_OBDB = "__import_obdb__"
 _ACTION_ADD = "__add__"
 _ACTION_BACK = "__back__"
+_ACTION_APPLY = "__apply__"
+
+SECTION_STRUCTURED = "structured"
+SECTION_ADDRESSING = "addressing"
+SECTION_DISPLAY = "display"
 
 
 def _device_class_options() -> list[SelectOptionDict]:
@@ -95,6 +101,27 @@ def _state_class_options() -> list[SelectOptionDict]:
         )
         for sc in SensorStateClass
     ]
+
+
+def _nullable_number_selector() -> vol.Any:
+    """Return a NumberSelector that also accepts ``None``.
+
+    The custom PID form has several optional numeric fields (``mul``, ``div``,
+    ``add``, ``min``, ``max``, ``min_value``, ``max_value``) whose defaults
+    may be ``None``. A bare ``NumberSelector`` uses ``vol.Coerce(float)`` which
+    raises on ``None``. Wrapping it in ``vol.Any(None, ...)`` lets voluptuous
+    short-circuit on ``None`` (preserving the "field was left empty" semantics)
+    while still accepting string-encoded numbers like ``"1.5"`` from the
+    browser.
+    """
+    return vol.Any(
+        None,
+        selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+    )
 
 
 class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -236,7 +263,6 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._uuid_write = user_input[CONF_UUID_WRITE]
             self._uuid_read = user_input[CONF_UUID_READ]
 
-            # Reached only after async_step_user/bluetooth set self._address.
             assert self._address is not None
             ble_device = async_ble_device_from_address(self.hass, self._address, True)
             if ble_device is None:
@@ -478,7 +504,6 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             return await self.async_step_standard_pids()
 
-        # Collect available years from signals' modelYears.
         years: set[int] = set()
         for sig in signals:
             my = sig.get("modelYears")
@@ -648,6 +673,7 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
         self._options = dict(config_entry.options)
         self._profile = ProfileConfig.from_dict(self._options[CONF_PROFILE])
         self._editing_pid_id: str | None = None
+        self._dirty: bool = False
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -768,25 +794,32 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
     async def async_step_custom_pids(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """List existing custom PIDs + actions dropdown (Add / Edit / Delete)."""
+        """List existing custom PIDs and route to add/edit/delete."""
         if user_input is not None:
             action = user_input["action"]
+            if action == _ACTION_APPLY:
+                self._options[CONF_PROFILE] = self._profile.to_dict()
+                return self._async_save_options()
+            if action == _ACTION_BACK:
+                return await self.async_step_init()
             if action == _ACTION_ADD:
                 self._editing_pid_id = None
                 return await self.async_step_custom_pid_edit()
-            if action == _ACTION_BACK:
-                return await self.async_step_init()
             self._editing_pid_id = action
             return await self.async_step_custom_pid_edit()
 
-        sorted_pids = sorted(
+        options: list[SelectOptionDict] = []
+        if self._dirty:
+            options.append(
+                SelectOptionDict(value=_ACTION_APPLY, label="✓ Apply changes and close")
+            )
+        options.append(
+            SelectOptionDict(value=_ACTION_ADD, label="+ Add new custom PID")
+        )
+        for pid in sorted(
             self._profile.custom_pids,
             key=lambda p: (p.can_header or "", p.can_filter or "", p.name),
-        )
-        options: list[SelectOptionDict] = [
-            SelectOptionDict(value=_ACTION_ADD, label="+ Add new custom PID")
-        ]
-        for pid in sorted_pids:
+        ):
             header_str = f" [{pid.can_header}]" if pid.can_header else ""
             options.append(
                 SelectOptionDict(value=pid.id, label=f"Edit: {pid.name}{header_str}")
@@ -798,7 +831,8 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        "action", default=_ACTION_ADD
+                        "action",
+                        default=_ACTION_APPLY if self._dirty else _ACTION_ADD,
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=options, mode=selector.SelectSelectorMode.DROPDOWN
@@ -811,13 +845,7 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
     async def async_step_custom_pid_edit(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Add or edit a single custom PID using the hybrid fmt editor.
-
-        The form has a formula string field (default) and structured fmt
-        fields (advanced). On save, the string is parsed first; if it
-        doesn't parse, the structured fields are used. If neither
-        produces a valid fmt, an error is shown.
-        """
+        """Add or edit a single custom PID using the hybrid fmt editor."""
         errors: dict[str, str] = {}
 
         existing: CustomPid | None = None
@@ -830,31 +858,36 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_custom_pids()
 
         if user_input is not None:
-            if user_input["remove"]:
+            flat_input: dict[str, Any] = {}
+            for key, val in user_input.items():
+                if isinstance(val, dict):
+                    flat_input.update(val)
+                else:
+                    flat_input[key] = val
+
+            if flat_input.get("remove"):
                 if existing is not None:
                     self._profile.custom_pids = [
                         p for p in self._profile.custom_pids if p.id != existing.id
                     ]
-                    self._options[CONF_PROFILE] = self._profile.to_dict()
-                    return self._async_save_options()
+                    self._dirty = True
                 return await self.async_step_custom_pids()
 
-            mode = (user_input["mode"] or "").strip().upper()
-            query = (user_input["query"] or "").strip().upper()
+            mode = (flat_input.get("mode") or "").strip().upper()
+            query = (flat_input.get("query") or "").strip().upper()
             if not is_hex(mode) or len(mode) != 2:
                 errors["mode"] = "invalid_hex"
             if not is_hex(query):
                 errors["query"] = "invalid_hex"
 
-            can_header = (user_input["can_header"] or "").strip().upper()
-            can_filter = (user_input["can_filter"] or "").strip().upper()
+            can_header = (flat_input.get("can_header") or "").strip().upper()
+            can_filter = (flat_input.get("can_filter") or "").strip().upper()
             if can_header and not is_hex(can_header):
                 errors["can_header"] = "invalid_hex"
             if can_filter and not is_hex(can_filter):
                 errors["can_filter"] = "invalid_hex"
 
-            # Build fmt from the hybrid form (string + structured fields).
-            fmt = form_input_to_fmt_from_hybrid(user_input)
+            fmt = form_input_to_fmt_from_hybrid(flat_input)
             if fmt is None:
                 errors["formula"] = "invalid_formula"
             else:
@@ -868,19 +901,19 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                 pid_id = existing.id if existing is not None else uuid.uuid4().hex
                 pid = CustomPid(
                     id=pid_id,
-                    name=(user_input["pid_name"] or "").strip() or "Unnamed",
+                    name=(flat_input.get("pid_name") or "").strip() or "Unnamed",
                     mode=mode,
                     query=query,
                     fmt=fmt,
                     can_header=can_header or None,
                     can_filter=can_filter or None,
-                    init_extra=(user_input["init_extra"] or "").strip() or None,
-                    unit=(user_input["unit"] or "").strip() or None,
-                    device_class=user_input["device_class"] or None,
-                    state_class=user_input["state_class"] or None,
-                    min_value=as_float(user_input.get("min_value")),
-                    max_value=as_float(user_input.get("max_value")),
-                    expected_bytes=int(user_input.get("expected_bytes") or 0),
+                    init_extra=(flat_input.get("init_extra") or "").strip() or None,
+                    unit=(flat_input.get("unit") or "").strip() or None,
+                    device_class=flat_input.get("device_class") or None,
+                    state_class=flat_input.get("state_class") or None,
+                    min_value=as_float(flat_input.get("min_value")),
+                    max_value=as_float(flat_input.get("max_value")),
+                    expected_bytes=int(flat_input.get("expected_bytes") or 0),
                     source="manual",
                 )
                 if existing is not None:
@@ -890,12 +923,11 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                     ]
                 else:
                     self._profile.custom_pids.append(pid)
-                self._options[CONF_PROFILE] = self._profile.to_dict()
-                return self._async_save_options()
+                self._dirty = True
+                return await self.async_step_custom_pids()
 
-        # On validation error, preserve the user's submitted input.
         if user_input is not None and errors:
-            defaults = user_input_to_form_defaults(user_input)
+            defaults = user_input_to_form_defaults(flat_input)
         else:
             defaults = (
                 pid_to_form_defaults(existing) if existing else empty_form_defaults()
@@ -919,94 +951,126 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                         "query", default=defaults["query"]
                     ): selector.TextSelector(),
                     vol.Optional(
-                        "can_header", default=defaults["can_header"]
-                    ): selector.TextSelector(),
-                    vol.Optional(
-                        "can_filter", default=defaults["can_filter"]
-                    ): selector.TextSelector(),
-                    vol.Optional(
-                        "init_extra", default=defaults["init_extra"]
-                    ): selector.TextSelector(
-                        selector.TextSelectorConfig(multiline=True)
-                    ),
-                    vol.Required(
                         "formula", default=defaults["formula"]
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(multiline=True)
                     ),
-                    vol.Optional(
-                        "bix", default=defaults["bix"]
-                    ): selector.NumberSelector(
-                        selector.NumberSelectorConfig(
-                            min=0,
-                            max=512,
-                            step=1,
-                            mode=selector.NumberSelectorMode.BOX,
-                        )
-                    ),
-                    vol.Optional(
-                        "len", default=defaults["len"]
-                    ): selector.NumberSelector(
-                        selector.NumberSelectorConfig(
-                            min=1,
-                            max=64,
-                            step=1,
-                            mode=selector.NumberSelectorMode.BOX,
-                        )
-                    ),
-                    vol.Optional("mul", default=defaults["mul"]): vol.Any(None, float),
-                    vol.Optional("div", default=defaults["div"]): vol.Any(None, float),
-                    vol.Optional("add", default=defaults["add"]): vol.Any(None, float),
-                    vol.Optional("sign", default=defaults["sign"]): bool,
-                    vol.Optional("blsb", default=defaults["blsb"]): bool,
-                    vol.Optional("min", default=defaults["min"]): vol.Any(None, float),
-                    vol.Optional("max", default=defaults["max"]): vol.Any(None, float),
-                    vol.Optional(
-                        "map_text", default=defaults["map_text"]
-                    ): selector.TextSelector(
-                        selector.TextSelectorConfig(multiline=True)
-                    ),
-                    vol.Optional(
-                        "unit", default=defaults["unit"]
-                    ): selector.TextSelector(),
-                    vol.Optional(
-                        "device_class", default=defaults["device_class"]
-                    ): vol.Any(
-                        None,
-                        selector.SelectSelector(
-                            selector.SelectSelectorConfig(
-                                options=_device_class_options(),
-                                mode=selector.SelectSelectorMode.DROPDOWN,
-                            )
+                    vol.Optional(SECTION_STRUCTURED): section(
+                        vol.Schema(
+                            {
+                                vol.Optional(
+                                    "bix", default=defaults["bix"]
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        min=0,
+                                        max=512,
+                                        step=1,
+                                        mode=selector.NumberSelectorMode.BOX,
+                                    )
+                                ),
+                                vol.Optional(
+                                    "len", default=defaults["len"]
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        min=1,
+                                        max=64,
+                                        step=1,
+                                        mode=selector.NumberSelectorMode.BOX,
+                                    )
+                                ),
+                                vol.Optional("sign", default=defaults["sign"]): bool,
+                                vol.Optional("blsb", default=defaults["blsb"]): bool,
+                                vol.Optional(
+                                    "mul", default=defaults["mul"]
+                                ): _nullable_number_selector(),
+                                vol.Optional(
+                                    "div", default=defaults["div"]
+                                ): _nullable_number_selector(),
+                                vol.Optional(
+                                    "add", default=defaults["add"]
+                                ): _nullable_number_selector(),
+                                vol.Optional(
+                                    "min", default=defaults["min"]
+                                ): _nullable_number_selector(),
+                                vol.Optional(
+                                    "max", default=defaults["max"]
+                                ): _nullable_number_selector(),
+                                vol.Optional(
+                                    "map_text", default=defaults["map_text"]
+                                ): selector.TextSelector(
+                                    selector.TextSelectorConfig(multiline=True)
+                                ),
+                            }
                         ),
+                        {"collapsed": True},
                     ),
-                    vol.Optional(
-                        "state_class", default=defaults["state_class"]
-                    ): vol.Any(
-                        None,
-                        selector.SelectSelector(
-                            selector.SelectSelectorConfig(
-                                options=_state_class_options(),
-                                mode=selector.SelectSelectorMode.DROPDOWN,
-                            )
+                    vol.Optional(SECTION_ADDRESSING): section(
+                        vol.Schema(
+                            {
+                                vol.Optional(
+                                    "can_header", default=defaults["can_header"]
+                                ): selector.TextSelector(),
+                                vol.Optional(
+                                    "can_filter", default=defaults["can_filter"]
+                                ): selector.TextSelector(),
+                                vol.Optional(
+                                    "init_extra", default=defaults["init_extra"]
+                                ): selector.TextSelector(
+                                    selector.TextSelectorConfig(multiline=True)
+                                ),
+                            }
                         ),
+                        {"collapsed": True},
                     ),
-                    vol.Optional(
-                        "min_value", default=defaults.get("min_value")
-                    ): vol.Any(None, float),
-                    vol.Optional(
-                        "max_value", default=defaults.get("max_value")
-                    ): vol.Any(None, float),
-                    vol.Optional(
-                        "expected_bytes", default=defaults.get("expected_bytes", 0)
-                    ): selector.NumberSelector(
-                        selector.NumberSelectorConfig(
-                            min=0,
-                            max=64,
-                            step=1,
-                            mode=selector.NumberSelectorMode.BOX,
-                            unit_of_measurement="bytes",
-                        )
+                    vol.Optional(SECTION_DISPLAY): section(
+                        vol.Schema(
+                            {
+                                vol.Optional(
+                                    "unit", default=defaults["unit"]
+                                ): selector.TextSelector(),
+                                vol.Optional(
+                                    "device_class", default=defaults["device_class"]
+                                ): vol.Any(
+                                    None,
+                                    selector.SelectSelector(
+                                        selector.SelectSelectorConfig(
+                                            options=_device_class_options(),
+                                            mode=selector.SelectSelectorMode.DROPDOWN,
+                                        )
+                                    ),
+                                ),
+                                vol.Optional(
+                                    "state_class", default=defaults["state_class"]
+                                ): vol.Any(
+                                    None,
+                                    selector.SelectSelector(
+                                        selector.SelectSelectorConfig(
+                                            options=_state_class_options(),
+                                            mode=selector.SelectSelectorMode.DROPDOWN,
+                                        )
+                                    ),
+                                ),
+                                vol.Optional(
+                                    "min_value", default=defaults.get("min_value")
+                                ): _nullable_number_selector(),
+                                vol.Optional(
+                                    "max_value", default=defaults.get("max_value")
+                                ): _nullable_number_selector(),
+                                vol.Optional(
+                                    "expected_bytes",
+                                    default=defaults.get("expected_bytes", 0),
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        min=0,
+                                        max=64,
+                                        step=1,
+                                        mode=selector.NumberSelectorMode.BOX,
+                                        unit_of_measurement="bytes",
+                                    )
+                                ),
+                            }
+                        ),
+                        {"collapsed": True},
                     ),
                     vol.Optional("remove", default=False): bool,
                 }
