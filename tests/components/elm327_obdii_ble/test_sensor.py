@@ -25,7 +25,7 @@ from tests.components.bluetooth import inject_bluetooth_service_info
 
 DOMAIN = "elm327_obdii_ble"
 
-FUEL_TYPE_ENTITY = "sensor.mock_title_fuel_type"
+FUEL_LEVEL_ENTITY = "sensor.mock_title_fuel_level"
 ADAPTER_STATE_ENTITY = "sensor.mock_title_adapter_state"
 BATTERY_VOLTAGE_ENTITY = "sensor.mock_title_battery_voltage"
 
@@ -47,14 +47,14 @@ async def test_sensors_car_on(
         await mock_config_entry.runtime_data._async_poll()
         await hass.async_block_till_done()
 
-    # 1 standard (FUEL_TYPE) + 2 diagnostic (adapter state + battery voltage) = 3
+    # 1 standard (FUEL_LEVEL) + 2 diagnostic (adapter state + battery voltage) = 3
     states = hass.states.async_all("sensor")
     assert len(states) == 3
 
-    # Standard sensor: FUEL_TYPE
-    fuel_type = hass.states.get(FUEL_TYPE_ENTITY)
+    # Standard sensor: FUEL_LEVEL
+    fuel_type = hass.states.get(FUEL_LEVEL_ENTITY)
     assert fuel_type is not None
-    assert fuel_type.state == "Gasoline"
+    assert fuel_type.state == "75.0"
 
     # Diagnostic: Adapter State
     adapter_state = hass.states.get(ADAPTER_STATE_ENTITY)
@@ -90,9 +90,9 @@ async def test_sensors_car_off(
         await mock_config_entry.runtime_data._async_poll()
         await hass.async_block_till_done()
 
-    fuel_type = hass.states.get(FUEL_TYPE_ENTITY)
+    fuel_type = hass.states.get(FUEL_LEVEL_ENTITY)
     assert fuel_type is not None
-    assert fuel_type.state == "Gasoline"
+    assert fuel_type.state == "75.0"
 
     with mock_poller_car_off():
         coordinator = mock_config_entry.runtime_data
@@ -105,9 +105,9 @@ async def test_sensors_car_off(
         await mock_config_entry.runtime_data._async_poll()
         await hass.async_block_till_done()
 
-    fuel_type = hass.states.get(FUEL_TYPE_ENTITY)
+    fuel_type = hass.states.get(FUEL_LEVEL_ENTITY)
     assert fuel_type is not None
-    assert fuel_type.state == "Gasoline"
+    assert fuel_type.state == "75.0"
 
     adapter_state = hass.states.get(ADAPTER_STATE_ENTITY)
     assert adapter_state is not None
@@ -135,9 +135,9 @@ async def test_sensors_not_connected(
         await mock_config_entry.runtime_data._async_poll()
         await hass.async_block_till_done()
 
-    fuel_type = hass.states.get(FUEL_TYPE_ENTITY)
+    fuel_type = hass.states.get(FUEL_LEVEL_ENTITY)
     assert fuel_type is not None
-    assert fuel_type.state == "Gasoline"
+    assert fuel_type.state == "75.0"
 
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     await hass.async_block_till_done()
@@ -294,7 +294,7 @@ async def test_standard_pid_not_found(
     inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
 
     profile = {
-        "standard_pids": ["NONEXISTENT_PID", "FUEL_TYPE"],
+        "standard_pids": ["NONEXISTENT_PID", "FUEL_LEVEL"],
         "custom_pids": [],
     }
     options = {**DEFAULT_OPTIONS, "profile": profile}
@@ -319,10 +319,10 @@ async def test_standard_pid_not_found(
         await entry.runtime_data._async_poll()
         await hass.async_block_till_done()
 
-    # Only FUEL_TYPE + 2 diagnostic = 3 (NONEXISTENT_PID skipped)
+    # Only FUEL_LEVEL + 2 diagnostic = 3 (NONEXISTENT_PID skipped)
     states = hass.states.async_all("sensor")
     assert len(states) == 3
-    assert hass.states.get(FUEL_TYPE_ENTITY) is not None
+    assert hass.states.get(FUEL_LEVEL_ENTITY) is not None
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
@@ -706,6 +706,82 @@ async def test_custom_sensor_no_coordinator_data(
     sensor_state = hass.states.get("sensor.mock_title_no_data_pid")
     assert sensor_state is not None
     assert sensor_state.state == STATE_UNKNOWN
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_custom_sensor_battery_class_with_volts(
+    hass: HomeAssistant,
+) -> None:
+    """Test custom PID with device_class='battery' and unit='V' gets VOLTAGE.
+
+    Covers the override at sensor.py line 207 where a custom PID with
+    device_class='battery' but unit='V' is mapped to SensorDeviceClass.VOLTAGE
+    instead of SensorDeviceClass.BATTERY.
+    """
+    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
+
+    profile = {
+        "standard_pids": [],
+        "custom_pids": [
+            {
+                "id": "test-batt-voltage",
+                "name": "Aux Battery",
+                "mode": "22",
+                "query": "1E3B",
+                "fmt": {"bix": 0, "len": 16, "div": 100},
+                "can_header": "7E5",
+                "can_filter": "7ED",
+                "unit": "V",
+                "device_class": "battery",
+                "state_class": "measurement",
+                "source": "manual",
+            },
+        ],
+    }
+    options = {**DEFAULT_OPTIONS, "profile": profile}
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "address": "AA:BB:CC:DD:EE:FF",
+            "atrv_supported": True,
+            "uuid_write": "0000fff2-0000-1000-8000-00805f9b34fb",
+            "uuid_read": "0000fff1-0000-1000-8000-00805f9b34fb",
+        },
+        unique_id="aabbccddeeff",
+        options=options,
+    )
+    entry.add_to_hass(hass)
+
+    poll_result = PollResult(
+        state=PollingState.CAR_ON,
+        data={"Aux Battery": 12.6},
+        any_success=True,
+        voltage=14.2,
+    )
+
+    with patch(
+        "homeassistant.components.elm327_obdii_ble.coordinator.Poller"
+    ) as mock_poller_cls:
+        poller = mock_poller_cls.return_value
+        poller.connect.return_value = True
+        poller.is_connected = True
+        poller.poll_once.return_value = poll_result
+        poller.disconnect.return_value = None
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        await entry.runtime_data._async_poll()
+        await hass.async_block_till_done()
+
+    sensor_state = hass.states.get("sensor.mock_title_aux_battery")
+    assert sensor_state is not None
+    assert sensor_state.state == "12.6"
+    assert sensor_state.attributes[ATTR_UNIT_OF_MEASUREMENT] == "V"
+    # device_class='battery' + unit='V' → overridden to VOLTAGE (line 207)
+    assert sensor_state.attributes[ATTR_DEVICE_CLASS] == "voltage"
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()

@@ -32,7 +32,7 @@ class TestRecommendedDefaults:
 
     def test_defaults_are_non_empty(self) -> None:
         """The defaults list is populated."""
-        assert len(RECOMMENDED_DEFAULTS) >= 4
+        assert len(RECOMMENDED_DEFAULTS) >= 1
 
     def test_defaults_are_unique(self) -> None:
         """No duplicate entries."""
@@ -41,10 +41,6 @@ class TestRecommendedDefaults:
     def test_defaults_include_fuel_level(self) -> None:
         """FUEL_LEVEL is the most useful PID for a parked car."""
         assert "FUEL_LEVEL" in RECOMMENDED_DEFAULTS
-
-    def test_defaults_include_voltage(self) -> None:
-        """VEHICLE_VOLTAGE is included (redundant with AT RV but useful for display)."""
-        assert "VEHICLE_VOLTAGE" in RECOMMENDED_DEFAULTS
 
     def test_defaults_exclude_transient_engine_pids(self) -> None:
         """PIDs that read 0 when parked (rpm, speed, load) are not defaulted."""

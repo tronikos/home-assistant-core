@@ -144,7 +144,7 @@ async def test_coordinator_car_off_data_preservation(
 
     coordinator = mock_config_entry.runtime_data
     assert coordinator.data is not None
-    assert coordinator.data.get("FUEL_TYPE") == "Gasoline"
+    assert coordinator.data.get("FUEL_LEVEL") == 75.0
 
     # Now poll with car off — data should be preserved
     with mock_poller_car_off():
@@ -158,7 +158,7 @@ async def test_coordinator_car_off_data_preservation(
         await hass.async_block_till_done()
 
     assert coordinator.data is not None
-    assert coordinator.data.get("FUEL_TYPE") == "Gasoline"
+    assert coordinator.data.get("FUEL_LEVEL") == 75.0
 
 
 async def test_coordinator_scan_supported_pids(
@@ -172,7 +172,7 @@ async def test_coordinator_scan_supported_pids(
 
     with mock_poller_car_on() as poller:
         poller.scan_supported_standard_pids.return_value = [
-            "FUEL_TYPE",
+            "FUEL_LEVEL",
             "ENGINE_SPEED",
         ]
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
@@ -183,7 +183,7 @@ async def test_coordinator_scan_supported_pids(
 
     coordinator = mock_config_entry.runtime_data
     result = await coordinator.async_scan_supported_standard_pids()
-    assert result == ["FUEL_TYPE", "ENGINE_SPEED"]
+    assert result == ["FUEL_LEVEL", "ENGINE_SPEED"]
 
 
 async def test_coordinator_scan_adapter_not_found(

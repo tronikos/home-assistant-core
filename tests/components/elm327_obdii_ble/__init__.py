@@ -32,7 +32,7 @@ USER_INPUT = {
 }
 
 DEFAULT_PROFILE = {
-    "standard_pids": ["FUEL_TYPE"],
+    "standard_pids": ["FUEL_LEVEL"],
     "custom_pids": [],
 }
 

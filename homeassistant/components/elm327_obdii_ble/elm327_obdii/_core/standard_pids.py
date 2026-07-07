@@ -9,10 +9,7 @@ from typing import Final
 from obdii import Command, Connection, commands
 
 RECOMMENDED_DEFAULTS: Final[list[str]] = [
-    "ENGINE_COOLANT_TEMP",
-    "AMBIENT_AIR_TEMP",
     "FUEL_LEVEL",
-    "VEHICLE_VOLTAGE",
 ]
 
 for _name in RECOMMENDED_DEFAULTS:

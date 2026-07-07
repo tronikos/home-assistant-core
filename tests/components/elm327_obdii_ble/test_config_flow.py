@@ -88,7 +88,7 @@ async def test_bluetooth_discovery(
     with patch_async_setup_entry() as mock_setup_entry:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
 
@@ -138,7 +138,7 @@ async def test_user_setup_none(
     with patch_async_setup_entry() as mock_setup_entry:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
 
@@ -178,7 +178,7 @@ async def test_user_setup_wican(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
 
@@ -228,7 +228,7 @@ async def test_user_setup_wican_unknown_profile(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -277,7 +277,7 @@ async def test_user_setup_obdb(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
 
@@ -333,7 +333,7 @@ async def test_obdb_fetch_fails(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -378,7 +378,7 @@ async def test_wican_fetch_fails(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -413,7 +413,7 @@ async def test_connection_step_success(
         success=True,
         uuid_write="0000fff1-0000-1000-8000-00805f9b34fb",
         uuid_read="0000fff1-0000-1000-8000-00805f9b34fb",
-        scanned_supported=["FUEL_TYPE"],
+        scanned_supported=["FUEL_LEVEL"],
     )
 
     with patch(
@@ -439,7 +439,7 @@ async def test_connection_step_success(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -476,7 +476,7 @@ async def test_connection_test_fails(
         success=True,
         uuid_write="0000fff1-0000-1000-8000-00805f9b34fb",
         uuid_read="0000fff1-0000-1000-8000-00805f9b34fb",
-        scanned_supported=["FUEL_TYPE"],
+        scanned_supported=["FUEL_LEVEL"],
     )
     with patch(
         "homeassistant.components.elm327_obdii_ble.config_flow.probe_adapter",
@@ -498,7 +498,7 @@ async def test_connection_test_fails(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -538,7 +538,7 @@ async def test_user_setup_device_not_found(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -627,7 +627,7 @@ async def test_bluetooth_discovery_connection_test_fails(
         success=True,
         uuid_write="0000fff1-0000-1000-8000-00805f9b34fb",
         uuid_read="0000fff1-0000-1000-8000-00805f9b34fb",
-        scanned_supported=["FUEL_TYPE"],
+        scanned_supported=["FUEL_LEVEL"],
     )
     with (
         patch(
@@ -655,7 +655,7 @@ async def test_bluetooth_discovery_connection_test_fails(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -689,7 +689,7 @@ async def test_user_setup_init_form(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -759,7 +759,7 @@ async def test_user_setup_unknown_profile(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -822,7 +822,7 @@ async def test_user_setup_obdb_year_variations(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
 
@@ -867,7 +867,7 @@ async def test_standard_pids_scanned_none(
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"standard_pids": ["FUEL_TYPE"]},
+            {"standard_pids": ["FUEL_LEVEL"]},
         )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -910,7 +910,7 @@ async def test_options_flow_standard_pids_success(hass: HomeAssistant) -> None:
 
     mock_coordinator = MagicMock()
     mock_coordinator.async_scan_supported_standard_pids = AsyncMock(
-        return_value=["FUEL_TYPE"]
+        return_value=["FUEL_LEVEL"]
     )
     entry.runtime_data = mock_coordinator
 
@@ -925,11 +925,11 @@ async def test_options_flow_standard_pids_success(hass: HomeAssistant) -> None:
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {"standard_pids": ["FUEL_TYPE"]},
+        {"standard_pids": ["FUEL_LEVEL"]},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     profile = ProfileConfig.from_dict(entry.options[CONF_PROFILE])
-    assert profile.standard_pids == ["FUEL_TYPE"]
+    assert profile.standard_pids == ["FUEL_LEVEL"]
 
 
 async def test_options_flow_standard_pids_scan_fails(hass: HomeAssistant) -> None:

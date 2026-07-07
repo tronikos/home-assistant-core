@@ -44,11 +44,11 @@ def mock_poller_car_on():
     """Mock the Poller to simulate a car-on state with data.
 
     The Poller.connect returns True, poll_once returns a PollResult with
-    CAR_ON state, 14.2V voltage, and a FUEL_TYPE value of "Gasoline".
+    CAR_ON state, 14.2V voltage, and a FUEL_LEVEL value of 75.0.
     """
     poll_result = PollResult(
         state=PollingState.CAR_ON,
-        data={"FUEL_TYPE": "Gasoline"},
+        data={"FUEL_LEVEL": 75.0},
         any_success=True,
         voltage=14.2,
     )
@@ -110,7 +110,7 @@ def mock_probe_adapter_success():
         success=True,
         uuid_write="0000fff2-0000-1000-8000-00805f9b34fb",
         uuid_read="0000fff1-0000-1000-8000-00805f9b34fb",
-        scanned_supported=["FUEL_TYPE"],
+        scanned_supported=["FUEL_LEVEL"],
     )
     with patch(
         "homeassistant.components.elm327_obdii_ble.config_flow.probe_adapter",

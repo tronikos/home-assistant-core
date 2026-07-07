@@ -3,7 +3,7 @@
   dict({
     'coordinator': dict({
       'data': dict({
-        'FUEL_TYPE': 'Gasoline',
+        'FUEL_LEVEL': 75.0,
       }),
       'polling_state': 'car_on',
       'voltage': 14.2,
@@ -23,7 +23,7 @@
           'custom_pids': list([
           ]),
           'standard_pids': list([
-            'FUEL_TYPE',
+            'FUEL_LEVEL',
           ]),
         }),
         'voltage_check': True,
