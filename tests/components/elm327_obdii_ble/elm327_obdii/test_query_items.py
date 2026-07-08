@@ -284,8 +284,8 @@ class TestCustomQueryItemExecute:
         )
         assert item.execute(conn) is None
 
-    def test_key_is_pid_name(self) -> None:
-        """The item's key is the PID's name."""
+    def test_key_is_pid_id(self) -> None:
+        """The item's key is the PID's unique id, not its display name."""
         pid = _make_pid("t", "SOC BMS")
         item = CustomQueryItem(
             pid=pid,
@@ -293,4 +293,4 @@ class TestCustomQueryItemExecute:
             evaluator=make_fmt_evaluator(_FMT),
             context=CanContext(),
         )
-        assert item.key == "SOC BMS"
+        assert item.key == "t"

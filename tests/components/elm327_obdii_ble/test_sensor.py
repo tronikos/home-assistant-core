@@ -202,7 +202,7 @@ async def test_custom_sensor(
 
     poll_result = PollResult(
         state=PollingState.CAR_ON,
-        data={"Pack Voltage": 332.25, "Charge Mode": "AC"},
+        data={"test-voltage": 332.25, "test-enum": "AC"},
         any_success=True,
         voltage=14.2,
     )
@@ -368,7 +368,7 @@ async def test_custom_sensor_odometer_state_class(
 
     poll_result = PollResult(
         state=PollingState.CAR_ON,
-        data={"Odometer": 129762.0},
+        data={"test-odo": 129762.0},
         any_success=True,
         voltage=14.2,
     )
@@ -440,7 +440,7 @@ async def test_custom_sensor_min_max_attrs(
 
     poll_result = PollResult(
         state=PollingState.CAR_ON,
-        data={"Battery Current": -4.25},
+        data={"test-current": -4.25},
         any_success=True,
         voltage=14.2,
     )
@@ -758,7 +758,7 @@ async def test_custom_sensor_battery_class_with_volts(
 
     poll_result = PollResult(
         state=PollingState.CAR_ON,
-        data={"Aux Battery": 12.6},
+        data={"test-batt-voltage": 12.6},
         any_success=True,
         voltage=14.2,
     )

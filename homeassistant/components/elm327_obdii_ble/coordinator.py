@@ -10,8 +10,6 @@ just supply ``needs_poll_method`` (when to poll) and ``poll_method``
 import logging
 from typing import TYPE_CHECKING, Any, override
 
-from bleak.exc import BleakError
-
 from homeassistant.components.bluetooth import (
     BluetoothChange,
     BluetoothScanningMode,
@@ -39,14 +37,7 @@ from .const import (
     OUT_OF_RANGE_POLL_SECONDS,
     SLOW_POLL_SECONDS,
 )
-from .elm327_obdii import (
-    Poller,
-    PollerConfig,
-    PollingState,
-    PollResult,
-    ProfileConfig,
-    TransportError,
-)
+from .elm327_obdii import Poller, PollerConfig, PollingState, PollResult, ProfileConfig
 
 if TYPE_CHECKING:
     from bleak.backends.device import BLEDevice
@@ -127,9 +118,14 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
                 raise UpdateFailed(
                     translation_domain=DOMAIN, translation_key="connect_failed_scan"
                 )
-        return await self.hass.async_add_executor_job(
-            self._poller.scan_supported_standard_pids
-        )
+        try:
+            return await self.hass.async_add_executor_job(
+                self._poller.scan_supported_standard_pids
+            )
+        except RuntimeError:
+            raise UpdateFailed(
+                translation_domain=DOMAIN, translation_key="connect_failed_scan"
+            ) from None
 
     @callback
     def _needs_poll(
@@ -138,18 +134,29 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         seconds_since_last_poll: float | None,
     ) -> bool:
         """Return True if a poll is needed based on the polling state machine."""
-        return (
-            self.hass.state is CoreState.running
-            and (
-                seconds_since_last_poll is None
-                or seconds_since_last_poll >= self._interval_for_state(self._last_state)
+        if self.hass.state is not CoreState.running:
+            return False
+        if not async_ble_device_from_address(
+            self.hass, service_info.device.address.upper(), connectable=True
+        ):
+            return False
+        if self._last_state == PollingState.OUT_OF_RANGE:
+            _LOGGER.debug(
+                "%s: Poll needed (was OUT_OF_RANGE, advertisement received)",
+                self.address,
             )
-            and bool(
-                async_ble_device_from_address(
-                    self.hass, service_info.device.address.upper(), connectable=True
-                )
-            )
+            return True
+        interval = self._interval_for_state(self._last_state)
+        needed = seconds_since_last_poll is None or seconds_since_last_poll >= interval
+        _LOGGER.debug(
+            "%s: Poll check — state=%s, seconds_since_last_poll=%s, interval=%s, poll=%s",
+            self.address,
+            self._last_state.value,
+            seconds_since_last_poll,
+            interval,
+            needed,
         )
+        return needed
 
     @staticmethod
     def _interval_for_state(state: PollingState) -> float:
@@ -202,10 +209,16 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
             _LOGGER.info("ELM327 adapter at %s is back online", self.address)
             self._was_unavailable = False
         self._last_state = result.state
-        self._voltage = result.voltage
-        # Car off is a routine state, not a failure — return cached data
-        # so sensors hold their last known values and last_poll_successful
-        # stays True (distinguishing "parked" from "actually broken").
+        if result.voltage is not None:
+            self._voltage = result.voltage
+        _LOGGER.debug(
+            "%s: Poll result — state=%s, voltage=%s, any_success=%s, data_keys=%s",
+            self.address,
+            result.state.value,
+            result.voltage,
+            result.any_success,
+            list(result.data.keys()) if result.data else [],
+        )
         if not result.any_success and result.state == PollingState.CAR_OFF:
             return self.data or {}
         return dict(result.data)
@@ -214,14 +227,20 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         """Executor-thread helper: open the BLE connection if not already."""
         uuid_write = self.entry.data[CONF_UUID_WRITE]
         uuid_read = self.entry.data[CONF_UUID_READ]
-        return self._poller.connect(ble_dev, self.hass.loop, uuid_write, uuid_read)
+        _LOGGER.debug(
+            "%s: Connecting (uuid_write=%s, uuid_read=%s)",
+            self.address,
+            uuid_write,
+            uuid_read,
+        )
+        connected = self._poller.connect(ble_dev, self.hass.loop, uuid_write, uuid_read)
+        _LOGGER.debug("%s: Connect result=%s", self.address, connected)
+        return connected
 
     def _polled_cycle(self, ble_dev: BLEDevice) -> PollResult | None:
         """Executor-thread helper: ensure connected, then run one poll."""
         if not self._poller.is_connected:
             if not self._connect(ble_dev):
+                _LOGGER.debug("%s: Poll cycle skipped — connect failed", self.address)
                 return None
-        try:
-            return self._poller.poll_once()
-        except BleakError, TimeoutError, OSError, ConnectionError, TransportError:
-            return None
+        return self._poller.poll_once()

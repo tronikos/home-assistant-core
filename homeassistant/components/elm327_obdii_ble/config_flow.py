@@ -66,14 +66,15 @@ from .elm327_obdii.forms import form_input_to_fmt_from_hybrid
 
 if TYPE_CHECKING:
     from . import Elm327ObdiiConfigEntry
+    from .coordinator import Elm327ObdiiCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 _NO_PROFILE = "none"
 _IMPORT_WICAN = "__import_wican__"
 _IMPORT_OBDB = "__import_obdb__"
-_ACTION_ADD = "__add__"
 _ACTION_BACK = "__back__"
+_ACTION_ADD = "__add__"
 _ACTION_APPLY = "__apply__"
 
 SECTION_STRUCTURED = "structured"
@@ -103,23 +104,24 @@ def _state_class_options() -> list[SelectOptionDict]:
     ]
 
 
-def _nullable_number_selector() -> vol.Any:
-    """Return a NumberSelector that also accepts ``None``.
+def _nullable_number_selector() -> vol.All:
+    """Return a validator that accepts ``None``, empty string, or a number.
 
-    The custom PID form has several optional numeric fields (``mul``, ``div``,
-    ``add``, ``min``, ``max``, ``min_value``, ``max_value``) whose defaults
-    may be ``None``. A bare ``NumberSelector`` uses ``vol.Coerce(float)`` which
-    raises on ``None``. Wrapping it in ``vol.Any(None, ...)`` lets voluptuous
-    short-circuit on ``None`` (preserving the "field was left empty" semantics)
-    while still accepting string-encoded numbers like ``"1.5"`` from the
-    browser.
+    A bare ``NumberSelector`` uses ``vol.Coerce(float)`` which rejects both
+    ``None`` and ``""`` (the value the browser submits for a cleared
+    ``<input type=number>``). The pre-processor maps both to ``None``;
+    ``vol.Any`` then short-circuits on ``None`` and delegates everything
+    else to ``NumberSelector``.
     """
-    return vol.Any(
-        None,
-        selector.NumberSelector(
-            selector.NumberSelectorConfig(
-                mode=selector.NumberSelectorMode.BOX,
-            )
+    return vol.All(
+        lambda v: None if v in (None, "") else v,
+        vol.Any(
+            None,
+            selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
         ),
     )
 
@@ -271,7 +273,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             result = await self._test_connection(
                 ble_device, self._uuid_write, self._uuid_read
             )
-            self.atrv_supported = bool(result.success)
+            self.atrv_supported = result.success if result.success is not None else True
             self._uuid_write = result.uuid_write
             self._uuid_read = result.uuid_read
             self._scanned_supported = result.scanned_supported
@@ -367,15 +369,11 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_wican(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Fetch WiCAN profiles and let the user pick one to import.
-
-        Only reached when the user selected "Import from WiCAN
-        repository..." on the vehicle step. If the fetch returns no
-        profiles (network error, unexpected shape), the user is bounced
-        back to the vehicle step with an error.
-        """
+        """Fetch WiCAN profiles and let the user pick one to import."""
         if user_input is not None:
             choice = user_input["profile"]
+            if choice == _ACTION_BACK:
+                return await self.async_step_vehicle()
             if choice in self._wican_profiles:
                 self._profile_config = import_wican_profile(
                     self._wican_profiles[choice]
@@ -392,16 +390,20 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_vehicle()
 
         options: list[SelectOptionDict] = [
+            SelectOptionDict(value=_ACTION_BACK, label="< Back to vehicle")
+        ]
+        profile_options = [
             SelectOptionDict(value=car_model, label=car_model)
             for car_model in sorted(self._wican_profiles)
         ]
+        options.extend(profile_options)
 
         return self.async_show_form(
             step_id="wican",
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        "profile", default=options[0]["value"]
+                        "profile", default=profile_options[0]["value"]
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=options, mode=selector.SelectSelectorMode.DROPDOWN
@@ -414,13 +416,10 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_obdb_make(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Fetch OBDb matrix and let the user pick a vehicle make.
-
-        Only reached when the user selected "Import from OBDb community..."
-        on the vehicle step. Fetches ``matrix_data.json`` (4.5 MB),
-        groups by ``(make, model)``, and shows a make dropdown.
-        """
+        """Fetch OBDb matrix and let the user pick a vehicle make."""
         if user_input is not None:
+            if user_input["make"] == _ACTION_BACK:
+                return await self.async_step_vehicle()
             self._obdb_selected_make = user_input["make"]
             return await self.async_step_obdb_model()
 
@@ -432,14 +431,18 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_vehicle()
 
         makes = sorted({make for make, _ in self._obdb_vehicles})
-        options = [SelectOptionDict(value=m, label=m) for m in makes]
+        options: list[SelectOptionDict] = [
+            SelectOptionDict(value=_ACTION_BACK, label="< Back to vehicle")
+        ]
+        make_options = [SelectOptionDict(value=m, label=m) for m in makes]
+        options.extend(make_options)
 
         return self.async_show_form(
             step_id="obdb_make",
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        "make", default=options[0]["value"]
+                        "make", default=make_options[0]["value"]
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=options, mode=selector.SelectSelectorMode.DROPDOWN
@@ -454,20 +457,26 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.ConfigFlowResult:
         """Let the user pick a model within the selected make."""
         if user_input is not None:
-            model = user_input["model"]
-            self._obdb_selected_model = model
+            if user_input["model"] == _ACTION_BACK:
+                return await self.async_step_obdb_make()
+            self._obdb_selected_model = user_input["model"]
             return await self.async_step_obdb_year()
 
         make = self._obdb_selected_make
         models = sorted({m for (mk, m) in self._obdb_vehicles if mk == make})
-        options = [SelectOptionDict(value=m, label=m) for m in models]
+        options: list[SelectOptionDict] = [
+            SelectOptionDict(value=_ACTION_BACK, label="< Back to make")
+        ]
+        model_options = [SelectOptionDict(value=m, label=m) for m in models]
+        options.extend(model_options)
 
         return self.async_show_form(
             step_id="obdb_model",
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        "model", default=options[0]["value"] if options else ""
+                        "model",
+                        default=model_options[0]["value"] if model_options else "",
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=options, mode=selector.SelectSelectorMode.DROPDOWN
@@ -480,11 +489,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_obdb_year(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Let the user pick a model year (optional — 'all' skips filtering).
-
-        Fetches the per-vehicle repo ``default.json`` for rax/fcm1/dbgfilter,
-        then imports the profile with year filtering.
-        """
+        """Let the user pick a model year (optional — 'all' skips filtering)."""
         make = self._obdb_selected_make
         model = self._obdb_selected_model
         key = (make, model)
@@ -492,6 +497,8 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             year_str = user_input.get("year", "all")
+            if year_str == _ACTION_BACK:
+                return await self.async_step_obdb_model()
             selected_year = int(year_str) if year_str != "all" else None
 
             session = async_get_clientsession(self.hass)
@@ -514,7 +521,8 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     for y in range(my[0], my[-1] + 1):
                         years.add(y)
 
-        options = [
+        options: list[SelectOptionDict] = [
+            SelectOptionDict(value=_ACTION_BACK, label="< Back to model"),
             SelectOptionDict(value="all", label="All years"),
             *(SelectOptionDict(value=str(y), label=str(y)) for y in sorted(years)),
         ]
@@ -688,28 +696,37 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Configure the 12V auxiliary battery guard (voltage check + thresholds)."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._options.update(
-                {
-                    CONF_VOLTAGE_CHECK: user_input[CONF_VOLTAGE_CHECK],
-                    CONF_VOLTAGE_ON: user_input[CONF_VOLTAGE_ON],
-                    CONF_VOLTAGE_OFF: user_input[CONF_VOLTAGE_OFF],
-                    CONF_GRACE_PERIOD: user_input[CONF_GRACE_PERIOD],
-                }
-            )
-            return self._async_save_options()
+            if user_input[CONF_VOLTAGE_ON] <= user_input[CONF_VOLTAGE_OFF]:
+                errors["base"] = "voltage_thresholds_invalid"
+            if not errors:
+                self._options.update(
+                    {
+                        CONF_VOLTAGE_CHECK: user_input[CONF_VOLTAGE_CHECK],
+                        CONF_VOLTAGE_ON: user_input[CONF_VOLTAGE_ON],
+                        CONF_VOLTAGE_OFF: user_input[CONF_VOLTAGE_OFF],
+                        CONF_GRACE_PERIOD: user_input[CONF_GRACE_PERIOD],
+                    }
+                )
+                return self._async_save_options()
 
         return self.async_show_form(
             step_id="battery",
+            errors=errors,
             data_schema=vol.Schema(
                 {
                     vol.Required(
                         CONF_VOLTAGE_CHECK,
-                        default=self._options[CONF_VOLTAGE_CHECK],
+                        default=(user_input or self._options).get(
+                            CONF_VOLTAGE_CHECK, self._options[CONF_VOLTAGE_CHECK]
+                        ),
                     ): selector.BooleanSelector(),
                     vol.Required(
                         CONF_VOLTAGE_ON,
-                        default=self._options[CONF_VOLTAGE_ON],
+                        default=(user_input or self._options).get(
+                            CONF_VOLTAGE_ON, self._options[CONF_VOLTAGE_ON]
+                        ),
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=10.0, max=15.0, step=0.1, unit_of_measurement="V"
@@ -717,7 +734,9 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                     ),
                     vol.Required(
                         CONF_VOLTAGE_OFF,
-                        default=self._options[CONF_VOLTAGE_OFF],
+                        default=(user_input or self._options).get(
+                            CONF_VOLTAGE_OFF, self._options[CONF_VOLTAGE_OFF]
+                        ),
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=10.0, max=15.0, step=0.1, unit_of_measurement="V"
@@ -725,7 +744,9 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                     ),
                     vol.Required(
                         CONF_GRACE_PERIOD,
-                        default=self._options[CONF_GRACE_PERIOD],
+                        default=(user_input or self._options).get(
+                            CONF_GRACE_PERIOD, self._options[CONF_GRACE_PERIOD]
+                        ),
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=0, max=600, step=1, unit_of_measurement="s"
@@ -745,15 +766,12 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
             return self._async_save_options()
 
         scanned: list[str] | None = None
-        coordinator = getattr(self.config_entry, "runtime_data", None)
-        if coordinator is not None:
-            try:
-                scanned = await coordinator.async_scan_supported_standard_pids()
-            except UpdateFailed as err:
-                _LOGGER.warning(
-                    "Could not scan supported PIDs (car might be off): %s", err
-                )
-                scanned = None
+        coordinator: Elm327ObdiiCoordinator = self.config_entry.runtime_data
+        try:
+            scanned = await coordinator.async_scan_supported_standard_pids()
+        except UpdateFailed as err:
+            _LOGGER.warning("Could not scan supported PIDs (car might be off): %s", err)
+            scanned = None
 
         if scanned:
             candidate_names = scanned

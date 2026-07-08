@@ -94,7 +94,9 @@ def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
                 standard.add(std_name)
                 continue
 
-            for param in _iter_parameters(block.get("parameters")):
+            for param_idx, param in enumerate(
+                _iter_parameters(block.get("parameters"))
+            ):
                 fmt = _parse_wican_formula_to_fmt(param.get("expression", ""), mode)
                 if fmt is None:
                     _LOGGER.warning(
@@ -108,7 +110,7 @@ def import_wican_profile(raw: dict[str, Any]) -> ProfileConfig:
                     )
                     continue
                 pid_name = param.get("name") or f"{mode}{query}"
-                pid_id = f"{mode}:{query}:{pid_name}"
+                pid_id = f"{mode}:{query}:{pid_name}:{param_idx}"
                 custom.append(
                     CustomPid(
                         id=pid_id,

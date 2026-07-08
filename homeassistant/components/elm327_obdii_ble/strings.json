@@ -6,7 +6,7 @@
       "no_devices_found": "No unconfigured ELM327 BLE devices found. Ensure your adapter is powered and in range."
     },
     "error": {
-      "device_not_found": "Could not establish an over-the-air link to the device. Verify it is powered.",
+      "device_not_found": "The BLE device could not be found. It may be out of range or powered off.",
       "invalid_formula": "The formula could not be parsed. Use a simple expression like B(4)/2.55, B(4,5)/4, S(3), or BIT(2,0), or fill in the structured fields (bix, len, mul, div, add) below.",
       "invalid_hex": "Mode and query must be hexadecimal digits only (e.g. mode '22', query '028C1').",
       "obdb_fetch_failed": "Could not fetch vehicle profiles from OBDb. Check your network connection and try again.",
@@ -33,9 +33,9 @@
           "custom_pids": "Custom PIDs from the selected profile"
         },
         "data_description": {
-          "custom_pids": "Deselect PIDs you don't need. All are pre-selected."
+          "custom_pids": "Deselect PIDs you don't need. All are preselected."
         },
-        "description": "Select which custom (proprietary) PIDs from the vehicle profile to enable. All are pre-selected; deselect any you don't need.",
+        "description": "Select which custom (proprietary) PIDs from the vehicle profile to enable. All are preselected; deselect any you don't need.",
         "title": "Select Custom PIDs"
       },
       "obdb_make": {
@@ -73,9 +73,9 @@
           "standard_pids": "Standard OBD-II PIDs"
         },
         "data_description": {
-          "standard_pids": "Select which standard Mode 01 PIDs to poll. Pre-selected entries are sensible defaults."
+          "standard_pids": "Select which standard Mode 01 PIDs to poll. Preselected entries are sensible defaults."
         },
-        "description": "Select the standard OBD-II parameters this integration should poll from your car. Pre-selected entries are sensible defaults plus any standard PIDs from your chosen vehicle profile.{warning}",
+        "description": "Select the standard OBD-II parameters this integration should poll from your car. Preselected entries are sensible defaults plus any standard PIDs from your chosen vehicle profile.{warning}",
         "title": "Select Standard PIDs"
       },
       "user": {
@@ -143,7 +143,8 @@
   "options": {
     "error": {
       "invalid_formula": "The formula could not be parsed. Use a simple expression like B(4)/2.55, B(4,5)/4, S(3), or BIT(2,0), or fill in the structured fields (bix, len, mul, div, add) below.",
-      "invalid_hex": "Mode, query, CAN header, and CAN filter must be hexadecimal digits only (e.g. mode '22', query '028C1', header '7E5', filter '7ED'). Leave header/filter blank if not needed."
+      "invalid_hex": "Mode, query, CAN header, and CAN filter must be hexadecimal digits only (e.g. mode '22', query '028C1', header '7E5', filter '7ED'). Leave header/filter blank if not needed.",
+      "voltage_thresholds_invalid": "Ignition on threshold must be higher than the off threshold."
     },
     "step": {
       "battery": {

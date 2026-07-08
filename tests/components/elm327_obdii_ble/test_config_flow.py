@@ -247,7 +247,7 @@ async def test_user_setup_wican(
     with patch_async_setup_entry() as mock_setup_entry:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"custom_pids": ["22:028C1:SOC BMS"]},
+            {"custom_pids": ["22:028C1:SOC BMS:0"]},
         )
     await hass.async_block_till_done()
 
@@ -891,6 +891,122 @@ async def test_user_setup_obdb_year_variations(
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
+async def test_wican_back_to_vehicle(
+    hass: HomeAssistant,
+    mock_probe_adapter_success,
+    mock_fetch_wican_profiles,
+) -> None:
+    """Back button on the wican step returns to the vehicle step."""
+    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_USER},
+        data=USER_INPUT,
+    )
+    assert result["step_id"] == "vehicle"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"profile": "__import_wican__"},
+    )
+    assert result["step_id"] == "wican"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"profile": "__back__"},
+    )
+    assert result["step_id"] == "vehicle"
+
+
+async def test_obdb_make_back_to_vehicle(
+    hass: HomeAssistant,
+    mock_probe_adapter_success,
+    mock_fetch_obdb_matrix,
+) -> None:
+    """Back button on the obdb_make step returns to the vehicle step."""
+    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_USER},
+        data=USER_INPUT,
+    )
+    assert result["step_id"] == "vehicle"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"profile": "__import_obdb__"},
+    )
+    assert result["step_id"] == "obdb_make"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"make": "__back__"},
+    )
+    assert result["step_id"] == "vehicle"
+
+
+async def test_obdb_model_back_to_make(
+    hass: HomeAssistant,
+    mock_probe_adapter_success,
+    mock_fetch_obdb_matrix,
+) -> None:
+    """Back button on the obdb_model step returns to the obdb_make step."""
+    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_USER},
+        data=USER_INPUT,
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"profile": "__import_obdb__"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"make": "Volkswagen"},
+    )
+    assert result["step_id"] == "obdb_model"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"model": "__back__"},
+    )
+    assert result["step_id"] == "obdb_make"
+
+
+async def test_obdb_year_back_to_model(
+    hass: HomeAssistant,
+    mock_probe_adapter_success,
+    mock_fetch_obdb_matrix,
+) -> None:
+    """Back button on the obdb_year step returns to the obdb_model step."""
+    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_USER},
+        data=USER_INPUT,
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"profile": "__import_obdb__"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"make": "Volkswagen"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"model": "e-Golf"},
+    )
+    assert result["step_id"] == "obdb_year"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"year": "__back__"},
+    )
+    assert result["step_id"] == "obdb_model"
+
+
 async def test_standard_pids_scanned_none(
     hass: HomeAssistant,
 ) -> None:
@@ -964,6 +1080,41 @@ async def test_options_flow_battery(hass: HomeAssistant) -> None:
     assert entry.options[CONF_GRACE_PERIOD] == 60
 
 
+async def test_options_flow_battery_thresholds_invalid(hass: HomeAssistant) -> None:
+    """Voltage on threshold must be higher than off threshold."""
+    entry = create_mock_entry(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "battery"},
+    )
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_VOLTAGE_CHECK: True,
+            CONF_VOLTAGE_ON: 12.5,
+            CONF_VOLTAGE_OFF: 13.0,
+            CONF_GRACE_PERIOD: 30,
+        },
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "battery"
+    assert result["errors"]["base"] == "voltage_thresholds_invalid"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_VOLTAGE_CHECK: True,
+            CONF_VOLTAGE_ON: 13.1,
+            CONF_VOLTAGE_OFF: 13.0,
+            CONF_GRACE_PERIOD: 30,
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
 async def test_options_flow_standard_pids_success(hass: HomeAssistant) -> None:
     """Test options flow standard PIDs step with successful ECU scan."""
     entry = create_mock_entry(hass)
@@ -1001,26 +1152,6 @@ async def test_options_flow_standard_pids_scan_fails(hass: HomeAssistant) -> Non
         side_effect=UpdateFailed("Connection lost")
     )
     entry.runtime_data = mock_coordinator
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {"next_step_id": "standard_pids"},
-    )
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "standard_pids"
-    assert "Could not scan the ECU" in result["description_placeholders"]["warning"]
-
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {"standard_pids": []},
-    )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-
-
-async def test_options_flow_standard_pids_no_coordinator(hass: HomeAssistant) -> None:
-    """Test options flow standard PIDs step when coordinator is missing."""
-    entry = create_mock_entry(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, override
 from homeassistant.components.bluetooth.passive_update_coordinator import (
     PassiveBluetoothCoordinatorEntity,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 
@@ -25,6 +26,7 @@ class Elm327ObdiiEntity(PassiveBluetoothCoordinatorEntity[Elm327ObdiiCoordinator
     created for the same MAC - no duplicate device entries.
     """
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_has_entity_name = True
 
     def __init__(
@@ -35,9 +37,6 @@ class Elm327ObdiiEntity(PassiveBluetoothCoordinatorEntity[Elm327ObdiiCoordinator
         """Initialize the base entity."""
         super().__init__(coordinator)
         self.config_entry = config_entry
-        # unique_id (format_mac) is for HA config entry tracking;
-        # coordinator.address is the raw address for BLE connections.
-        # Both are normalized to format_mac here for the device registry.
         address = format_mac(coordinator.address)
         self._attr_device_info = DeviceInfo(
             connections={

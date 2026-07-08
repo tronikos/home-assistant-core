@@ -40,7 +40,7 @@ DEFAULT_OPTIONS = {
     "profile": DEFAULT_PROFILE,
     "voltage_check": True,
     "voltage_on_threshold": 13.1,
-    "voltage_off_threshold": 12.8,
+    "voltage_off_threshold": 13.0,
     "voltage_grace_seconds": 30,
 }
 

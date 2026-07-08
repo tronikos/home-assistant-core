@@ -2,7 +2,6 @@
 
 from unittest.mock import patch
 
-from bleak.exc import BleakError
 import pytest
 
 from homeassistant.components.elm327_obdii_ble.const import (
@@ -277,27 +276,32 @@ async def test_coordinator_transport_error_after_success(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Test transport error after a successful poll logs the warning."""
+    """Test transport error after a successful poll returns empty data.
+
+    The real Poller.poll_once catches transport errors internally and
+    returns a PollResult preserving the previous state with empty data.
+    The coordinator receives this (not None), so it does NOT raise
+    UpdateFailed — it returns an empty dict and sensors go unknown.
+    """
     inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
 
     mock_config_entry.add_to_hass(hass)
 
-    # First: successful poll (sets _was_unavailable = False)
     with mock_poller_car_on() as poller:
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        # Ensure at least one poll has completed
         await mock_config_entry.runtime_data._async_poll()
         await hass.async_block_till_done()
 
     coordinator = mock_config_entry.runtime_data
     assert coordinator._was_unavailable is False
 
-    # Second: transport error (should log warning, set _was_unavailable = True)
-    # Modify the existing poller mock — don't use a new context manager
-    # because the coordinator holds a reference to the original mock instance.
-    poller.poll_once.side_effect = BleakError("disconnected")
-    with pytest.raises(UpdateFailed):
-        await coordinator._async_update(ELM327_SERVICE_INFO)
-
-    assert coordinator._was_unavailable is True
+    poller.poll_once.return_value = PollResult(
+        state=PollingState.CAR_ON,
+        data={},
+        any_success=False,
+        voltage=None,
+    )
+    result = await coordinator._async_update(ELM327_SERVICE_INFO)
+    assert result == {}
+    assert coordinator._was_unavailable is False

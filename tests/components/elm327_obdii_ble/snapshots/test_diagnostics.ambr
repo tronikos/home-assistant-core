@@ -28,7 +28,7 @@
         }),
         'voltage_check': True,
         'voltage_grace_seconds': 30,
-        'voltage_off_threshold': 12.8,
+        'voltage_off_threshold': 13.0,
         'voltage_on_threshold': 13.1,
       }),
       'pref_disable_new_entities': False,

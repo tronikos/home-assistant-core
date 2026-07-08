@@ -84,8 +84,8 @@ class CustomQueryItem:
 
     @property
     def key(self) -> str:
-        """Return the custom PID's display name."""
-        return self.pid.name
+        """Return the custom PID's unique id (stable across renames)."""
+        return self.pid.id
 
     def execute(self, connection: Any) -> float | str | None:
         """Query the custom PID, build the clean payload, evaluate the fmt."""

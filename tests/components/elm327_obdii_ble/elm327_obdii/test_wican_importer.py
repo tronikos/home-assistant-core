@@ -308,6 +308,25 @@ class TestParametersShape:
         profile = import_wican_profile(raw)
         assert len(profile.custom_pids) == 2
 
+    def test_duplicate_param_names_get_unique_ids(self) -> None:
+        """Two parameters with the same name must not collide on pid_id."""
+        raw = {
+            "car_model": "T",
+            "pids": [
+                {
+                    "pid": "22FFFF",
+                    "parameters": [
+                        {"name": "SOC", "expression": "B0"},
+                        {"name": "SOC", "expression": "B1"},
+                    ],
+                }
+            ],
+        }
+        profile = import_wican_profile(raw)
+        assert len(profile.custom_pids) == 2
+        ids = {p.id for p in profile.custom_pids}
+        assert len(ids) == 2
+
     def test_torque_style_dict(self) -> None:
         """Torque-style {name: expression} shorthand."""
         raw = {

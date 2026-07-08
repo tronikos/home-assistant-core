@@ -168,11 +168,15 @@ class Poller:
         """
         with self._lock:
             if self._api is None or not self._api.is_connected():
+                _LOGGER.debug("poll_once: not connected, returning empty result")
                 return PollResult(state=self._state)
 
             try:
                 new_state, voltage = self._check_voltage()
                 self._state = new_state
+                _LOGGER.debug(
+                    "poll_once: voltage=%s, new_state=%s", voltage, new_state.value
+                )
 
                 data: dict[str, Any] = {}
                 any_success = False
@@ -182,6 +186,13 @@ class Poller:
                         self._query_plan,
                         self._current_context,
                     )
+                    _LOGGER.debug(
+                        "poll_once: query plan done — any_success=%s, keys=%s",
+                        any_success,
+                        list(data.keys()),
+                    )
+                else:
+                    _LOGGER.debug("poll_once: skipping query plan (CAR_OFF)")
 
                 return PollResult(
                     state=new_state, data=data, any_success=any_success, voltage=voltage
@@ -226,7 +237,6 @@ class Poller:
         if not (cfg.atrv_supported and cfg.voltage_check_enabled):
             return PollingState.CAR_ON, None
 
-        # Caller (poll_once) guarantees self._api is connected; narrow for mypy.
         assert self._api is not None
         rv_resp: Response[Any] = self._api.query(Command(Mode.AT, "RV"))
         if not rv_resp or not rv_resp.raw:
@@ -458,6 +468,12 @@ def _run_query_plan(
 
     for context, items in plan:
         if context != ctx:
+            _LOGGER.debug(
+                "query_plan: switching context (header=%s, filter=%s, extra=%s)",
+                context.header,
+                context.filter,
+                context.extra_init,
+            )
             _apply_can_context(api.transport, context, api)
             ctx = context
 
@@ -470,5 +486,8 @@ def _run_query_plan(
             if value is not None:
                 res_data[item.key] = value
                 any_success = True
+                _LOGGER.debug("Query %s = %s", item.key, value)
+            else:
+                _LOGGER.debug("Query %s returned None", item.key)
 
     return res_data, any_success, ctx

@@ -184,10 +184,9 @@ class TransportBLE(TransportBase):
                 if self._ble_conn.is_connected:
                     with contextlib.suppress(BleakError, OSError, TransportError):
                         await self._ble_conn.stop_notify(self.config["uuid_read"])
-                    await self._ble_conn.disconnect()
+                    with contextlib.suppress(BleakError, OSError, TransportError):
+                        await self._ble_conn.disconnect()
             finally:
-                # Clear the reference in finally so is_connected() always returns
-                # False after async_close(), even if disconnect() raised.
                 self._ble_conn = None
 
     async def _write(self, query: bytes) -> None:

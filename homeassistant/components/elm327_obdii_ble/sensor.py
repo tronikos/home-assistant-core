@@ -8,7 +8,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import EntityCategory, UnitOfElectricPotential
+from homeassistant.const import UnitOfElectricPotential
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -230,7 +230,7 @@ class Elm327ObdiiCustomSensor(Elm327ObdiiEntity, SensorEntity):
         data: dict[str, Any] | None = self.coordinator.data
         if data is None:
             return None
-        value = data.get(self._pid.name)
+        value = data.get(self._pid.id)
         if value is None:
             return None
         # Enumeration sensors return strings directly.
@@ -247,7 +247,6 @@ class Elm327ObdiiStateSensor(Elm327ObdiiEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = _ADAPTER_STATE_OPTIONS
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "adapter_state"
     _attr_icon = "mdi:car-connected"
 
@@ -273,7 +272,7 @@ class Elm327ObdiiVoltageSensor(Elm327ObdiiEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.VOLTAGE
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 1
     _attr_translation_key = "battery_voltage"
     _attr_icon = "mdi:car-battery"
 
@@ -285,6 +284,12 @@ class Elm327ObdiiVoltageSensor(Elm327ObdiiEntity, SensorEntity):
         """Initialize the voltage sensor."""
         super().__init__(coordinator, config_entry)
         self._attr_unique_id = f"{config_entry.unique_id}-battery-voltage"
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Go unavailable when there is no voltage reading."""
+        return self.coordinator.voltage is not None
 
     @property
     @override
