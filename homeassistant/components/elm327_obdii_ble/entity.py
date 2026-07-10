@@ -1,12 +1,10 @@
 """Common parent class for ELM327 OBD-II BLE entities."""
 
-import logging
 from typing import TYPE_CHECKING, override
 
 from homeassistant.components.bluetooth.passive_update_coordinator import (
     PassiveBluetoothCoordinatorEntity,
 )
-from homeassistant.const import EntityCategory
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 
@@ -14,8 +12,6 @@ from .coordinator import Elm327ObdiiCoordinator
 
 if TYPE_CHECKING:
     from . import Elm327ObdiiConfigEntry
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class Elm327ObdiiEntity(PassiveBluetoothCoordinatorEntity[Elm327ObdiiCoordinator]):
@@ -26,7 +22,6 @@ class Elm327ObdiiEntity(PassiveBluetoothCoordinatorEntity[Elm327ObdiiCoordinator
     created for the same MAC - no duplicate device entries.
     """
 
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_has_entity_name = True
 
     def __init__(

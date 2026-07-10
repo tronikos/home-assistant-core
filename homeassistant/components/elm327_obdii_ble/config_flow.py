@@ -223,7 +223,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 format_mac(self._address), raise_on_progress=False
             )
             self._abort_if_unique_id_configured()
-            ble_device = async_ble_device_from_address(self.hass, self._address, True)
+            ble_device = async_ble_device_from_address(self.hass, self._address)
             if not ble_device:
                 errors["base"] = "device_not_found"
             else:
@@ -266,7 +266,7 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._uuid_read = user_input[CONF_UUID_READ]
 
             assert self._address is not None
-            ble_device = async_ble_device_from_address(self.hass, self._address, True)
+            ble_device = async_ble_device_from_address(self.hass, self._address)
             if ble_device is None:
                 return self.async_abort(reason="device_not_found")
 

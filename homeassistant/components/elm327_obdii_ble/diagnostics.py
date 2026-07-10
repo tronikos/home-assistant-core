@@ -10,8 +10,8 @@ if TYPE_CHECKING:
     from . import Elm327ObdiiConfigEntry
     from .coordinator import Elm327ObdiiCoordinator
 
-ENTRY_TO_REDACT = frozenset({"address", "uuid_read", "uuid_write"})
-SERVICE_INFO_TO_REDACT = frozenset({"address", "name", "source", "device"})
+ENTRY_TO_REDACT = frozenset({"address"})
+SERVICE_INFO_TO_REDACT = frozenset({"address", "device"})
 
 
 def _coordinator_diagnostics(coordinator: Elm327ObdiiCoordinator) -> dict[str, Any]:

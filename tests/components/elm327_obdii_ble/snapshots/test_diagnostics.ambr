@@ -12,8 +12,8 @@
       'data': dict({
         'address': '**REDACTED**',
         'atrv_supported': True,
-        'uuid_read': '**REDACTED**',
-        'uuid_write': '**REDACTED**',
+        'uuid_read': '0000fff1-0000-1000-8000-00805f9b34fb',
+        'uuid_write': '0000fff2-0000-1000-8000-00805f9b34fb',
       }),
       'disabled_by': None,
       'domain': 'elm327_obdii_ble',
@@ -62,7 +62,7 @@
       'device': '**REDACTED**',
       'manufacturer_data': dict({
       }),
-      'name': '**REDACTED**',
+      'name': 'OBDII',
       'raw': None,
       'rssi': -60,
       'service_data': dict({
@@ -70,7 +70,7 @@
       'service_uuids': list([
         '0000fff0-0000-1000-8000-00805f9b34fb',
       ]),
-      'source': '**REDACTED**',
+      'source': 'local',
       'tx_power': -127,
     }),
   })

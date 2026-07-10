@@ -1,7 +1,5 @@
 """Test the elm327_obdii_ble coordinator."""
 
-from unittest.mock import patch
-
 import pytest
 
 from homeassistant.components.elm327_obdii_ble.const import (
@@ -185,35 +183,6 @@ async def test_coordinator_scan_supported_pids(
     assert result == ["FUEL_LEVEL", "ENGINE_SPEED"]
 
 
-async def test_coordinator_scan_adapter_not_found(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    """Test scan_supported_standard_pids raises when adapter not found."""
-    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
-
-    mock_config_entry.add_to_hass(hass)
-
-    with mock_poller_car_on():
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
-        await hass.async_block_till_done()
-        # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
-        await hass.async_block_till_done()
-
-    coordinator = mock_config_entry.runtime_data
-    coordinator._ble_device = None
-
-    with (
-        patch(
-            "homeassistant.components.elm327_obdii_ble.coordinator.async_ble_device_from_address",
-            return_value=None,
-        ),
-        pytest.raises(UpdateFailed),
-    ):
-        await coordinator.async_scan_supported_standard_pids()
-
-
 async def test_coordinator_scan_connect_failed(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -226,22 +195,14 @@ async def test_coordinator_scan_connect_failed(
     with mock_poller_car_on() as poller:
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        # Ensure at least one poll has completed
         await mock_config_entry.runtime_data._async_poll()
         await hass.async_block_till_done()
 
     coordinator = mock_config_entry.runtime_data
-    coordinator._ble_device = None
     poller.is_connected = False
     poller.connect.return_value = False
 
-    with (
-        patch(
-            "homeassistant.components.elm327_obdii_ble.coordinator.async_ble_device_from_address",
-            return_value=ELM327_SERVICE_INFO.device,
-        ),
-        pytest.raises(UpdateFailed),
-    ):
+    with pytest.raises(UpdateFailed):
         await coordinator.async_scan_supported_standard_pids()
 
 

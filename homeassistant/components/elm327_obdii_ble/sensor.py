@@ -8,7 +8,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfElectricPotential
+from homeassistant.const import EntityCategory, UnitOfElectricPotential
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -246,6 +246,7 @@ class Elm327ObdiiStateSensor(Elm327ObdiiEntity, SensorEntity):
     """Diagnostic sensor tracking the adapter's polling state machine."""
 
     _attr_device_class = SensorDeviceClass.ENUM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_options = _ADAPTER_STATE_OPTIONS
     _attr_translation_key = "adapter_state"
     _attr_icon = "mdi:car-connected"
@@ -270,6 +271,7 @@ class Elm327ObdiiVoltageSensor(Elm327ObdiiEntity, SensorEntity):
     """Diagnostic sensor for the 12V battery voltage (from AT RV)."""
 
     _attr_device_class = SensorDeviceClass.VOLTAGE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 1

@@ -1,19 +1,14 @@
 """Set up the ELM327 OBD-II BLE integration."""
 
-import logging
 from typing import Final
 
 from homeassistant.components import bluetooth
-from homeassistant.components.bluetooth import BluetoothReachabilityIntent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
 
-from .const import DOMAIN, PLATFORMS
+from .const import PLATFORMS
 from .coordinator import Elm327ObdiiCoordinator
-
-_LOGGER: logging.Logger = logging.getLogger(__package__)
 
 type Elm327ObdiiConfigEntry = ConfigEntry[Elm327ObdiiCoordinator]
 
@@ -21,20 +16,9 @@ type Elm327ObdiiConfigEntry = ConfigEntry[Elm327ObdiiCoordinator]
 async def async_setup_entry(hass: HomeAssistant, entry: Elm327ObdiiConfigEntry) -> bool:
     """Set up this integration from a config entry."""
     address: str = entry.data[CONF_ADDRESS]
-    ble_device = bluetooth.async_ble_device_from_address(hass, address.upper(), True)
-    if not ble_device:
-        raise ConfigEntryNotReady(
-            translation_domain=DOMAIN,
-            translation_key="device_not_found",
-            translation_placeholders={
-                "address": address,
-                "reason": bluetooth.async_address_reachability_diagnostics(
-                    hass, address, BluetoothReachabilityIntent.CONNECTION
-                ),
-            },
-        )
+    ble_device = bluetooth.async_ble_device_from_address(hass, address.upper())
 
-    coordinator = Elm327ObdiiCoordinator(hass, entry)
+    coordinator = Elm327ObdiiCoordinator(hass, entry, ble_device)
     entry.runtime_data = coordinator
 
     entry.async_on_unload(coordinator.async_start())
