@@ -44,7 +44,7 @@ async def test_sensors_car_on(
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     # 1 standard (FUEL_LEVEL) + 2 diagnostic (adapter state + battery voltage) = 3
@@ -87,7 +87,7 @@ async def test_sensors_car_off(
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     fuel_type = hass.states.get(FUEL_LEVEL_ENTITY)
@@ -102,7 +102,7 @@ async def test_sensors_car_off(
             any_success=False,
             voltage=12.0,
         )
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     fuel_type = hass.states.get(FUEL_LEVEL_ENTITY)
@@ -132,7 +132,7 @@ async def test_sensors_not_connected(
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     fuel_type = hass.states.get(FUEL_LEVEL_ENTITY)
@@ -218,7 +218,7 @@ async def test_custom_sensor(
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await entry.runtime_data._async_poll()
+        await entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     # 2 custom + 2 diagnostic = 4
@@ -255,7 +255,7 @@ async def test_orphan_cleanup(
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     ent_reg = er.async_get(hass)
@@ -316,7 +316,7 @@ async def test_standard_pid_not_found(
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await entry.runtime_data._async_poll()
+        await entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     # Only FUEL_LEVEL + 2 diagnostic = 3 (NONEXISTENT_PID skipped)
@@ -384,7 +384,7 @@ async def test_custom_sensor_odometer_state_class(
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await entry.runtime_data._async_poll()
+        await entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     odo = hass.states.get("sensor.mock_title_odometer")
@@ -456,7 +456,7 @@ async def test_custom_sensor_min_max_attrs(
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await entry.runtime_data._async_poll()
+        await entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     current = hass.states.get("sensor.mock_title_battery_current")
@@ -529,7 +529,7 @@ async def test_custom_sensor_no_data(
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await entry.runtime_data._async_poll()
+        await entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     sensor_state = hass.states.get("sensor.mock_title_no_data_pid")
@@ -554,7 +554,7 @@ async def test_custom_orphan_cleanup(
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     ent_reg = er.async_get(hass)
@@ -629,7 +629,7 @@ async def test_standard_sensor_voltage(
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await entry.runtime_data._async_poll()
+        await entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     # Standard sensor: VEHICLE_VOLTAGE
@@ -699,7 +699,7 @@ async def test_custom_sensor_no_coordinator_data(
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await entry.runtime_data._async_poll()
+        await entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     # Coordinator data exists but doesn't include our PID name
@@ -773,7 +773,7 @@ async def test_custom_sensor_battery_class_with_volts(
         poller.disconnect.return_value = None
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
-        await entry.runtime_data._async_poll()
+        await entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     sensor_state = hass.states.get("sensor.mock_title_aux_battery")

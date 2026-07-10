@@ -136,6 +136,9 @@
     "device_not_found": {
       "message": "BLE device not found for address {address}: {reason}"
     },
+    "device_out_of_range": {
+      "message": "BLE adapter is out of range"
+    },
     "polling_failed": {
       "message": "Polling cycle failed"
     }

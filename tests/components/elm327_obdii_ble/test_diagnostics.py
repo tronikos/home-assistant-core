@@ -30,7 +30,7 @@ async def test_diagnostics(
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
         # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     result = await get_diagnostics_for_config_entry(

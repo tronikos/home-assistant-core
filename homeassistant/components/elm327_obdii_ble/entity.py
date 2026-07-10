@@ -2,11 +2,9 @@
 
 from typing import TYPE_CHECKING, override
 
-from homeassistant.components.bluetooth.passive_update_coordinator import (
-    PassiveBluetoothCoordinatorEntity,
-)
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .coordinator import Elm327ObdiiCoordinator
 
@@ -14,7 +12,7 @@ if TYPE_CHECKING:
     from . import Elm327ObdiiConfigEntry
 
 
-class Elm327ObdiiEntity(PassiveBluetoothCoordinatorEntity[Elm327ObdiiCoordinator]):
+class Elm327ObdiiEntity(CoordinatorEntity[Elm327ObdiiCoordinator]):
     """Base entity that links to the shared Bluetooth device entry.
 
     Uses ``connections`` only (not ``identifiers``) so the entity is

@@ -1,5 +1,8 @@
 """Test the elm327_obdii_ble coordinator."""
 
+from datetime import timedelta
+from unittest.mock import patch
+
 import pytest
 
 from homeassistant.components.elm327_obdii_ble.const import (
@@ -32,7 +35,7 @@ async def test_coordinator_polling_intervals(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Test that polling intervals map correctly to states."""
+    """Test that update_interval adjusts based on polling state."""
     inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
 
     mock_config_entry.add_to_hass(hass)
@@ -40,33 +43,25 @@ async def test_coordinator_polling_intervals(
     with mock_poller_car_on():
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     coordinator = mock_config_entry.runtime_data
-
-    assert coordinator._interval_for_state(PollingState.CAR_ON) == FAST_POLL_SECONDS
-    assert coordinator._interval_for_state(PollingState.CAR_OFF) == SLOW_POLL_SECONDS
-    assert (
-        coordinator._interval_for_state(PollingState.OUT_OF_RANGE)
-        == OUT_OF_RANGE_POLL_SECONDS
-    )
-    assert (
-        coordinator._interval_for_state(PollingState.GRACE_PERIOD) == FAST_POLL_SECONDS
-    )
+    coordinator._update_interval_for(PollingState.CAR_ON)
+    assert coordinator.update_interval == timedelta(seconds=FAST_POLL_SECONDS)
+    coordinator._update_interval_for(PollingState.CAR_OFF)
+    assert coordinator.update_interval == timedelta(seconds=SLOW_POLL_SECONDS)
+    coordinator._update_interval_for(PollingState.OUT_OF_RANGE)
+    assert coordinator.update_interval == timedelta(seconds=OUT_OF_RANGE_POLL_SECONDS)
+    coordinator._update_interval_for(PollingState.GRACE_PERIOD)
+    assert coordinator.update_interval == timedelta(seconds=FAST_POLL_SECONDS)
 
 
 async def test_coordinator_transport_error(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Test coordinator handles transport errors gracefully.
-
-    The transport error is caught by poll_once and surfaces as
-    UpdateFailed, not setup failure. The coordinator still reaches
-    LOADED state.
-    """
+    """Test coordinator handles transport errors gracefully."""
     inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
 
     mock_config_entry.add_to_hass(hass)
@@ -78,27 +73,6 @@ async def test_coordinator_transport_error(
     assert mock_config_entry.state is ConfigEntryState.LOADED
     coordinator = mock_config_entry.runtime_data
     assert coordinator is not None
-
-
-async def test_coordinator_ble_device_tracking(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    """Test coordinator tracks BLE device from advertisements."""
-    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
-
-    mock_config_entry.add_to_hass(hass)
-
-    with mock_poller_car_on():
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
-        await hass.async_block_till_done()
-        # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
-        await hass.async_block_till_done()
-
-    coordinator = mock_config_entry.runtime_data
-    assert coordinator._ble_device is not None
-    assert coordinator._ble_device.address == "AA:BB:CC:DD:EE:FF"
 
 
 async def test_coordinator_disconnect(
@@ -113,8 +87,7 @@ async def test_coordinator_disconnect(
     with mock_poller_car_on() as poller:
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
@@ -135,15 +108,13 @@ async def test_coordinator_car_off_data_preservation(
     with mock_poller_car_on():
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     coordinator = mock_config_entry.runtime_data
     assert coordinator.data is not None
     assert coordinator.data.get("FUEL_LEVEL") == 75.0
 
-    # Now poll with car off — data should be preserved
     with mock_poller_car_off():
         coordinator._poller.poll_once.return_value = PollResult(
             state=PollingState.CAR_OFF,
@@ -151,7 +122,7 @@ async def test_coordinator_car_off_data_preservation(
             any_success=False,
             voltage=12.0,
         )
-        await coordinator._async_poll()
+        await coordinator.async_refresh()
         await hass.async_block_till_done()
 
     assert coordinator.data is not None
@@ -174,8 +145,7 @@ async def test_coordinator_scan_supported_pids(
         ]
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     coordinator = mock_config_entry.runtime_data
@@ -195,7 +165,7 @@ async def test_coordinator_scan_connect_failed(
     with mock_poller_car_on() as poller:
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     coordinator = mock_config_entry.runtime_data
@@ -206,11 +176,89 @@ async def test_coordinator_scan_connect_failed(
         await coordinator.async_scan_supported_standard_pids()
 
 
-async def test_coordinator_handle_unavailable(
+async def test_coordinator_scan_adapter_out_of_range(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Test _async_handle_unavailable sets OUT_OF_RANGE and disconnects."""
+    """Test scan_supported_standard_pids raises when adapter is not found."""
+    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
+
+    mock_config_entry.add_to_hass(hass)
+
+    with mock_poller_car_on():
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        await mock_config_entry.runtime_data.async_refresh()
+        await hass.async_block_till_done()
+
+    coordinator = mock_config_entry.runtime_data
+
+    with (
+        patch(
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_ble_device_from_address",
+            return_value=None,
+        ),
+        pytest.raises(UpdateFailed),
+    ):
+        await coordinator.async_scan_supported_standard_pids()
+
+
+async def test_coordinator_scan_runtime_error(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test scan_supported_standard_pids raises UpdateFailed on RuntimeError."""
+    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
+
+    mock_config_entry.add_to_hass(hass)
+
+    with mock_poller_car_on() as poller:
+        poller.scan_supported_standard_pids.side_effect = RuntimeError("disconnected")
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        await mock_config_entry.runtime_data.async_refresh()
+        await hass.async_block_till_done()
+
+    coordinator = mock_config_entry.runtime_data
+
+    with pytest.raises(UpdateFailed):
+        await coordinator.async_scan_supported_standard_pids()
+
+
+async def test_coordinator_out_of_range(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test coordinator raises UpdateFailed when device is out of range."""
+    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
+
+    mock_config_entry.add_to_hass(hass)
+
+    with mock_poller_car_on():
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        await mock_config_entry.runtime_data.async_refresh()
+        await hass.async_block_till_done()
+
+    coordinator = mock_config_entry.runtime_data
+
+    with (
+        patch(
+            "homeassistant.components.elm327_obdii_ble.coordinator.async_address_present",
+            return_value=False,
+        ),
+        pytest.raises(UpdateFailed),
+    ):
+        await coordinator._async_update_data()
+
+    assert coordinator.update_interval == timedelta(seconds=OUT_OF_RANGE_POLL_SECONDS)
+
+
+async def test_coordinator_poll_cycle_connect_failed(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test coordinator raises UpdateFailed when connect fails during poll."""
     inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
 
     mock_config_entry.add_to_hass(hass)
@@ -218,51 +266,12 @@ async def test_coordinator_handle_unavailable(
     with mock_poller_car_on() as poller:
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        # Ensure at least one poll has completed
-        await mock_config_entry.runtime_data._async_poll()
+        await mock_config_entry.runtime_data.async_refresh()
         await hass.async_block_till_done()
 
     coordinator = mock_config_entry.runtime_data
-    assert coordinator.polling_state == PollingState.CAR_ON
+    poller.is_connected = False
+    poller.connect.return_value = False
 
-    # Simulate device going unavailable
-    coordinator._async_handle_unavailable(ELM327_SERVICE_INFO)
-    await hass.async_block_till_done()
-
-    assert coordinator.polling_state == PollingState.OUT_OF_RANGE
-    poller.disconnect.assert_called_once()
-
-
-async def test_coordinator_transport_error_after_success(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    """Test transport error after a successful poll returns empty data.
-
-    The real Poller.poll_once catches transport errors internally and
-    returns a PollResult preserving the previous state with empty data.
-    The coordinator receives this (not None), so it does NOT raise
-    UpdateFailed — it returns an empty dict and sensors go unknown.
-    """
-    inject_bluetooth_service_info(hass, ELM327_SERVICE_INFO)
-
-    mock_config_entry.add_to_hass(hass)
-
-    with mock_poller_car_on() as poller:
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
-        await hass.async_block_till_done()
-        await mock_config_entry.runtime_data._async_poll()
-        await hass.async_block_till_done()
-
-    coordinator = mock_config_entry.runtime_data
-    assert coordinator._was_unavailable is False
-
-    poller.poll_once.return_value = PollResult(
-        state=PollingState.CAR_ON,
-        data={},
-        any_success=False,
-        voltage=None,
-    )
-    result = await coordinator._async_update(ELM327_SERVICE_INFO)
-    assert result == {}
-    assert coordinator._was_unavailable is False
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()

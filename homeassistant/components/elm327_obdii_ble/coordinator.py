@@ -1,30 +1,29 @@
 """Polling coordinator for the ELM327 OBD-II BLE integration.
 
-Thin wrapper around :class:`elm327_obdii.Poller`. Subclasses
-:class:`ActiveBluetoothDataUpdateCoordinator` so HA handles
-advertisement-driven availability tracking and poll debouncing; we
-just supply ``needs_poll_method`` (when to poll) and ``poll_method``
-(how to poll).
+Thin wrapper around :class:`elm327_obdii.Poller`. Uses
+:class:`DataUpdateCoordinator` with a dynamic ``update_interval`` that
+adjusts based on the polling state machine (5s when driving, 300s when
+parked, 3600s when out of range). A bluetooth callback registered in
+``__init__.py`` triggers an immediate refresh when the adapter
+advertises, so polling resumes instantly when the device comes back in
+range.
 """
 
-import asyncio
+from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING, Any, override
 
 from bleak.backends.device import BLEDevice
 
 from homeassistant.components.bluetooth import (
-    BluetoothChange,
-    BluetoothScanningMode,
-    BluetoothServiceInfoBleak,
+    BluetoothReachabilityIntent,
+    async_address_present,
+    async_address_reachability_diagnostics,
     async_ble_device_from_address,
 )
-from homeassistant.components.bluetooth.active_update_coordinator import (
-    ActiveBluetoothDataUpdateCoordinator,
-)
 from homeassistant.const import CONF_ADDRESS
-from homeassistant.core import CoreState, HomeAssistant, callback
-from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
     CONF_ATRV_SUPPORTED,
@@ -48,32 +47,23 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]]):
-    """Drives the library :class:`Poller` from BLE advertisement events."""
+class Elm327ObdiiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Drives the library :class:`Poller` from HA's polling scheduler."""
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: Elm327ObdiiConfigEntry,
-        ble_device: BLEDevice | None,
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, entry: Elm327ObdiiConfigEntry) -> None:
         """Initialize the coordinator and build the Poller from the config entry."""
         super().__init__(
-            hass=hass,
-            logger=_LOGGER,
-            address=entry.data[CONF_ADDRESS],
-            mode=BluetoothScanningMode.ACTIVE,
-            needs_poll_method=self._needs_poll,
-            poll_method=self._async_update,
-            connectable=True,
+            hass,
+            _LOGGER,
+            name=DOMAIN,
+            update_interval=timedelta(seconds=FAST_POLL_SECONDS),
         )
         self.entry = entry
         self._poller = Poller(self._build_poller_config(entry))
         self._last_state: PollingState = PollingState.OUT_OF_RANGE
         self._voltage: float | None = None
-        self._ble_device: BLEDevice | None = ble_device
         self._was_unavailable: bool = True
-        self._timer_handle: asyncio.TimerHandle | None = None
+        self.last_rediscovery_attempt: float = 0.0
 
     @staticmethod
     def _build_poller_config(entry: Elm327ObdiiConfigEntry) -> PollerConfig:
@@ -99,6 +89,11 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         """Last measured 12V battery voltage (from AT RV), or None."""
         return self._voltage
 
+    @property
+    def address(self) -> str:
+        """The BLE address of the adapter."""
+        return str(self.entry.data[CONF_ADDRESS])
+
     def disconnect(self) -> None:
         """Close the BLE connection from an executor pool thread."""
         self._poller.disconnect()
@@ -110,13 +105,15 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         :class:`UpdateFailed` with a translation key if the adapter is
         out of range or cannot connect.
         """
-        if self._ble_device is None:
+        address = self.entry.data[CONF_ADDRESS]
+        ble_device = async_ble_device_from_address(self.hass, address)
+        if ble_device is None:
             raise UpdateFailed(
                 translation_domain=DOMAIN, translation_key="adapter_out_of_range"
             )
         if not self._poller.is_connected:
             connected = await self.hass.async_add_executor_job(
-                self._connect, self._ble_device
+                self._connect, ble_device
             )
             if not connected:
                 raise UpdateFailed(
@@ -131,142 +128,77 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
                 translation_domain=DOMAIN, translation_key="connect_failed_scan"
             ) from None
 
-    @callback
-    def _needs_poll(
-        self,
-        service_info: BluetoothServiceInfoBleak,
-        seconds_since_last_poll: float | None,
-    ) -> bool:
-        """Return True if a poll is needed based on the polling state machine."""
-        if self.hass.state is not CoreState.running:
-            return False
-        if not async_ble_device_from_address(
-            self.hass, service_info.device.address.upper()
-        ):
-            return False
-        if self._last_state == PollingState.OUT_OF_RANGE:
-            _LOGGER.debug(
-                "%s: Poll needed (was OUT_OF_RANGE, advertisement received)",
-                self.address,
+    @override
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Run one polling cycle."""
+        address = self.entry.data[CONF_ADDRESS]
+
+        if not async_address_present(self.hass, address, connectable=True):
+            self._update_interval_for(PollingState.OUT_OF_RANGE)
+            if not self._was_unavailable:
+                _LOGGER.warning("ELM327 adapter at %s is out of range", address)
+                self._was_unavailable = True
+            raise UpdateFailed(
+                translation_domain=DOMAIN, translation_key="device_out_of_range"
             )
-            return True
-        interval = self._interval_for_state(self._last_state)
-        needed = seconds_since_last_poll is None or seconds_since_last_poll >= interval
-        _LOGGER.debug(
-            "%s: Poll check — state=%s, seconds_since_last_poll=%s, interval=%s, poll=%s",
-            self.address,
-            self._last_state.value,
-            seconds_since_last_poll,
-            interval,
-            needed,
-        )
-        return needed
 
-    @staticmethod
-    def _interval_for_state(state: PollingState) -> float:
-        """Map a polling state to its poll interval in seconds."""
-        if state == PollingState.CAR_OFF:
-            return SLOW_POLL_SECONDS
-        if state == PollingState.OUT_OF_RANGE:
-            return OUT_OF_RANGE_POLL_SECONDS
-        return FAST_POLL_SECONDS
+        ble_device = async_ble_device_from_address(self.hass, address)
+        if ble_device is None:
+            reason = async_address_reachability_diagnostics(
+                self.hass, address, BluetoothReachabilityIntent.CONNECTION
+            )
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="device_not_found",
+                translation_placeholders={"address": address, "reason": reason},
+            )
 
-    @callback
-    def _async_schedule_next_poll(self) -> None:
-        """Schedule a timer-driven poll for when the device is in range but not advertising often enough."""
-        if self._timer_handle is not None:
-            self._timer_handle.cancel()
-            self._timer_handle = None
-        if self._last_state == PollingState.OUT_OF_RANGE:
-            return
-        if not async_ble_device_from_address(self.hass, self.address.upper()):
-            return
-        interval = self._interval_for_state(self._last_state)
-        self._timer_handle = self.hass.loop.call_later(interval, self._async_timer_poll)
-        _LOGGER.debug(
-            "%s: Scheduled timer poll in %ss (state=%s)",
-            self.address,
-            interval,
-            self._last_state.value,
-        )
-
-    @callback
-    def _async_timer_poll(self) -> None:
-        """Trigger a poll via the debouncer when the timer fires."""
-        self._timer_handle = None
-        _LOGGER.debug("%s: Timer poll triggered", self.address)
-        self._debounced_poll.async_schedule_call()
-
-    @callback
-    @override
-    def _async_handle_bluetooth_event(
-        self,
-        service_info: BluetoothServiceInfoBleak,
-        change: BluetoothChange,
-    ) -> None:
-        """Keep the freshest BLEDevice reference and schedule timer-driven polls."""
-        self._ble_device = service_info.device
-        super()._async_handle_bluetooth_event(service_info, change)
-
-    @callback
-    @override
-    def _async_handle_unavailable(
-        self, service_info: BluetoothServiceInfoBleak
-    ) -> None:
-        """Device hasn't advertised in 5 minutes — force state to OUT_OF_RANGE."""
-        if self._timer_handle is not None:
-            self._timer_handle.cancel()
-            self._timer_handle = None
-        self._last_state = PollingState.OUT_OF_RANGE
-        self.hass.async_add_executor_job(self._poller.disconnect)
-        super()._async_handle_unavailable(service_info)
-
-    @callback
-    @override
-    def _async_stop(self) -> None:
-        """Cancel the timer when the coordinator is stopped."""
-        if self._timer_handle is not None:
-            self._timer_handle.cancel()
-            self._timer_handle = None
-        super()._async_stop()
-
-    async def _async_update(
-        self, service_info: BluetoothServiceInfoBleak
-    ) -> dict[str, Any]:
-        """Run one polling cycle on the executor pool."""
-        ble_device = service_info.device
         result: PollResult | None = await self.hass.async_add_executor_job(
             self._polled_cycle, ble_device
         )
+
         if result is None:
             if not self._was_unavailable:
-                _LOGGER.warning("ELM327 adapter at %s became unavailable", self.address)
+                _LOGGER.warning("ELM327 adapter at %s became unavailable", address)
                 self._was_unavailable = True
             raise UpdateFailed(
                 translation_domain=DOMAIN, translation_key="polling_failed"
             )
+
         if self._was_unavailable:
-            _LOGGER.info("ELM327 adapter at %s is back online", self.address)
+            _LOGGER.info("ELM327 adapter at %s is back online", address)
             self._was_unavailable = False
+
         self._last_state = result.state
         if result.voltage is not None:
             self._voltage = result.voltage
+
         _LOGGER.debug(
             "%s: Poll result — state=%s, voltage=%s, any_success=%s, data_keys=%s",
-            self.address,
+            address,
             result.state.value,
             result.voltage,
             result.any_success,
             list(result.data.keys()) if result.data else [],
         )
+
+        self._update_interval_for(result.state)
+
         if not result.any_success and result.state in (
             PollingState.CAR_OFF,
             PollingState.GRACE_PERIOD,
         ):
-            self._async_schedule_next_poll()
             return self.data or {}
-        self._async_schedule_next_poll()
         return dict(result.data)
+
+    def _update_interval_for(self, state: PollingState) -> None:
+        """Map the polling state to the matching ``update_interval``."""
+        if state == PollingState.CAR_OFF:
+            self.update_interval = timedelta(seconds=SLOW_POLL_SECONDS)
+        elif state == PollingState.OUT_OF_RANGE:
+            self.update_interval = timedelta(seconds=OUT_OF_RANGE_POLL_SECONDS)
+        else:
+            self.update_interval = timedelta(seconds=FAST_POLL_SECONDS)
 
     def _connect(self, ble_dev: BLEDevice) -> bool:
         """Executor-thread helper: open the BLE connection if not already."""
@@ -274,18 +206,21 @@ class Elm327ObdiiCoordinator(ActiveBluetoothDataUpdateCoordinator[dict[str, Any]
         uuid_read = self.entry.data[CONF_UUID_READ]
         _LOGGER.debug(
             "%s: Connecting (uuid_write=%s, uuid_read=%s)",
-            self.address,
+            self.entry.data[CONF_ADDRESS],
             uuid_write,
             uuid_read,
         )
         connected = self._poller.connect(ble_dev, self.hass.loop, uuid_write, uuid_read)
-        _LOGGER.debug("%s: Connect result=%s", self.address, connected)
+        _LOGGER.debug("%s: Connect result=%s", self.entry.data[CONF_ADDRESS], connected)
         return connected
 
     def _polled_cycle(self, ble_dev: BLEDevice) -> PollResult | None:
         """Executor-thread helper: ensure connected, then run one poll."""
         if not self._poller.is_connected:
             if not self._connect(ble_dev):
-                _LOGGER.debug("%s: Poll cycle skipped — connect failed", self.address)
+                _LOGGER.debug(
+                    "%s: Poll cycle skipped — connect failed",
+                    self.entry.data[CONF_ADDRESS],
+                )
                 return None
         return self._poller.poll_once()
