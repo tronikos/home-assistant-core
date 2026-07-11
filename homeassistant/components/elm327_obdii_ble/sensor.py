@@ -3,6 +3,18 @@
 import logging
 from typing import TYPE_CHECKING, Any, Final, override
 
+from elm327_obdii import (
+    CustomPid,
+    PollingState,
+    ProfileConfig,
+    format_sensor_value,
+    get_list_of_units,
+    get_standard_command,
+    propose_device_class,
+    propose_icon,
+    propose_state_class,
+)
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -17,17 +29,6 @@ from homeassistant.util import slugify
 
 from .const import CONF_PROFILE
 from .coordinator import Elm327ObdiiCoordinator
-from .elm327_obdii import (
-    CustomPid,
-    PollingState,
-    ProfileConfig,
-    format_sensor_value,
-    get_list_of_units,
-    get_standard_command,
-    propose_device_class,
-    propose_icon,
-    propose_state_class,
-)
 from .entity import Elm327ObdiiEntity
 
 if TYPE_CHECKING:

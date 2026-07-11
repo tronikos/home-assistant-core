@@ -14,6 +14,7 @@ import logging
 from typing import TYPE_CHECKING, Any, override
 
 from bleak.backends.device import BLEDevice
+from elm327_obdii import Poller, PollerConfig, PollingState, PollResult, ProfileConfig
 
 from homeassistant.components.bluetooth import (
     BluetoothReachabilityIntent,
@@ -39,7 +40,6 @@ from .const import (
     OUT_OF_RANGE_POLL_SECONDS,
     SLOW_POLL_SECONDS,
 )
-from .elm327_obdii import Poller, PollerConfig, PollingState, PollResult, ProfileConfig
 
 if TYPE_CHECKING:
     from . import Elm327ObdiiConfigEntry

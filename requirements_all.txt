@@ -925,6 +925,9 @@ elkm1-lib==2.2.15
 # homeassistant.components.inels
 elkoep-aio-mqtt==0.1.0b4
 
+# homeassistant.components.elm327_obdii_ble
+elm327-obdii==0.0.3
+
 # homeassistant.components.elmax
 elmax-api==0.0.6.4rc0
 
@@ -1991,9 +1994,6 @@ py-nightscout==1.2.2
 
 # homeassistant.components.mta
 py-nymta==0.4.1
-
-# homeassistant.components.elm327_obdii_ble
-py-obdii==0.10.3b0
 
 # homeassistant.components.opendisplay
 py-opendisplay==7.15.0
