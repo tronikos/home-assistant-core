@@ -2,12 +2,9 @@
 
 from unittest.mock import patch
 
+from elm327_obdii import PollingState, PollResult
 import pytest
 
-from homeassistant.components.elm327_obdii_ble.elm327_obdii import (
-    PollingState,
-    PollResult,
-)
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,

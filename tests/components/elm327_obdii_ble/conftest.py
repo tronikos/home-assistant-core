@@ -4,13 +4,9 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 from bleak.exc import BleakError
+from elm327_obdii import ConnectionTestResult, PollingState, PollResult
 import pytest
 
-from homeassistant.components.elm327_obdii_ble.elm327_obdii import (
-    ConnectionTestResult,
-    PollingState,
-    PollResult,
-)
 from homeassistant.const import CONF_ADDRESS
 
 from . import DEFAULT_OPTIONS, DOMAIN

@@ -3,16 +3,13 @@
 from datetime import timedelta
 from unittest.mock import patch
 
+from elm327_obdii import PollingState, PollResult
 import pytest
 
 from homeassistant.components.elm327_obdii_ble.const import (
     FAST_POLL_SECONDS,
     OUT_OF_RANGE_POLL_SECONDS,
     SLOW_POLL_SECONDS,
-)
-from homeassistant.components.elm327_obdii_ble.elm327_obdii import (
-    PollingState,
-    PollResult,
 )
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant

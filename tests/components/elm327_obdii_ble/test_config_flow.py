@@ -2,6 +2,8 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from elm327_obdii import ConnectionTestResult, FmtValidationError, ProfileConfig
+
 from homeassistant.components.elm327_obdii_ble.config_flow import (
     _ACTION_ADD,
     _ACTION_APPLY,
@@ -16,11 +18,6 @@ from homeassistant.components.elm327_obdii_ble.const import (
     CONF_VOLTAGE_CHECK,
     CONF_VOLTAGE_OFF,
     CONF_VOLTAGE_ON,
-)
-from homeassistant.components.elm327_obdii_ble.elm327_obdii import (
-    ConnectionTestResult,
-    FmtValidationError,
-    ProfileConfig,
 )
 from homeassistant.config_entries import SOURCE_BLUETOOTH, SOURCE_USER
 from homeassistant.const import CONF_ADDRESS
