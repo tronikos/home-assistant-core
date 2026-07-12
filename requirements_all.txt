@@ -926,7 +926,7 @@ elkm1-lib==2.2.15
 elkoep-aio-mqtt==0.1.0b4
 
 # homeassistant.components.elm327_obdii_ble
-elm327-obdii==0.0.3
+elm327-obdii==0.0.4
 
 # homeassistant.components.elmax
 elmax-api==0.0.6.4rc0
