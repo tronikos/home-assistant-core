@@ -1035,7 +1035,6 @@ async def test_standard_pids_scanned_none(
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "standard_pids"
-    assert "Could not scan the ECU" in result["description_placeholders"]["warning"]
 
     with patch_async_setup_entry():
         result = await hass.config_entries.flow.async_configure(
@@ -1129,7 +1128,6 @@ async def test_options_flow_standard_pids_success(hass: HomeAssistant) -> None:
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "standard_pids"
-    assert result["description_placeholders"]["warning"] == ""
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
@@ -1157,7 +1155,6 @@ async def test_options_flow_standard_pids_scan_fails(hass: HomeAssistant) -> Non
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "standard_pids"
-    assert "Could not scan the ECU" in result["description_placeholders"]["warning"]
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],

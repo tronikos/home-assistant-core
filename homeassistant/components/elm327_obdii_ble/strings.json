@@ -75,7 +75,7 @@
         "data_description": {
           "standard_pids": "Select which standard Mode 01 PIDs to poll. Preselected entries are sensible defaults."
         },
-        "description": "Select the standard OBD-II parameters this integration should poll from your car. Preselected entries are sensible defaults plus any standard PIDs from your chosen vehicle profile.{warning}",
+        "description": "Select the standard OBD-II parameters this integration should poll from your car. Preselected entries are sensible defaults plus any standard PIDs from your chosen vehicle profile.\n\nIf the ECU could not be scanned (the vehicle may be off), all known standard PIDs are shown — deselect any that aren't supported by your vehicle.",
         "title": "Select Standard PIDs"
       },
       "user": {
@@ -271,7 +271,7 @@
         "data_description": {
           "standard_pids": "Select which standard Mode 01 PIDs to poll. Only PIDs your ECU reports as supported are shown."
         },
-        "description": "Select which standard OBD-II parameters this integration should poll from your car. The list is filtered to PIDs your vehicle's ECU reports as supported; if the ECU couldn't be scanned, all known PIDs are shown.{warning}",
+        "description": "Select which standard OBD-II parameters this integration should poll from your car. The list is filtered to PIDs your vehicle's ECU reports as supported; if the ECU couldn't be scanned, all known PIDs are shown.\n\nIf the ECU could not be scanned (the vehicle may be off), all known standard PIDs are shown — deselect any that aren't supported by your vehicle.",
         "title": "Select Standard PIDs"
       }
     }

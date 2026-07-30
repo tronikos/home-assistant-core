@@ -215,6 +215,12 @@ class Elm327ObdiiCustomSensor(Elm327ObdiiEntity, SensorEntity):
             self._attr_state_class = _STATE_CLASS_MAP.get(sc_name) if sc_name else None
             if self._attr_state_class is None and "ODOMETER" in pid.name.upper():
                 self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+            if (
+                self._attr_device_class
+                in (SensorDeviceClass.ENERGY, SensorDeviceClass.GAS)
+                and self._attr_state_class == SensorStateClass.MEASUREMENT
+            ):
+                self._attr_state_class = None
 
         extra_attrs: dict[str, float] = {}
         if pid.min_value is not None:

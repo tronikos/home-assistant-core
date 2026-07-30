@@ -66,7 +66,6 @@ from .const import (
 
 if TYPE_CHECKING:
     from . import Elm327ObdiiConfigEntry
-    from .coordinator import Elm327ObdiiCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,28 +101,6 @@ def _state_class_options() -> list[SelectOptionDict]:
         )
         for sc in SensorStateClass
     ]
-
-
-def _nullable_number_selector() -> vol.All:
-    """Return a validator that accepts ``None``, empty string, or a number.
-
-    A bare ``NumberSelector`` uses ``vol.Coerce(float)`` which rejects both
-    ``None`` and ``""`` (the value the browser submits for a cleared
-    ``<input type=number>``). The pre-processor maps both to ``None``;
-    ``vol.Any`` then short-circuits on ``None`` and delegates everything
-    else to ``NumberSelector``.
-    """
-    return vol.All(
-        lambda v: None if v in (None, "") else v,
-        vol.Any(
-            None,
-            selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-        ),
-    )
 
 
 class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -552,14 +529,8 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         scanned = self._scanned_supported
         if scanned:
             candidate_names = scanned
-            warning = ""
         else:
             candidate_names = all_known_standard_pid_names()
-            warning = (
-                "\n\n**Note:** Could not scan the ECU for supported PIDs "
-                "(the vehicle may be off). All known standard PIDs are "
-                "shown; deselect any that aren't supported by your vehicle."
-            )
 
         preselect_set = set(RECOMMENDED_DEFAULTS) | set(
             self._profile_config.standard_pids
@@ -574,7 +545,6 @@ class Elm327ObdiiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="standard_pids",
-            description_placeholders={"warning": warning},
             data_schema=vol.Schema(
                 {
                     vol.Required(
@@ -766,23 +736,20 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
             return self._async_save_options()
 
         scanned: list[str] | None = None
-        coordinator: Elm327ObdiiCoordinator = self.config_entry.runtime_data
-        try:
-            scanned = await coordinator.async_scan_supported_standard_pids()
-        except UpdateFailed as err:
-            _LOGGER.warning("Could not scan supported PIDs (car might be off): %s", err)
-            scanned = None
+        coordinator = getattr(self.config_entry, "runtime_data", None)
+        if coordinator is not None:
+            try:
+                scanned = await coordinator.async_scan_supported_standard_pids()
+            except UpdateFailed as err:
+                _LOGGER.warning(
+                    "Could not scan supported PIDs (car might be off): %s", err
+                )
+                scanned = None
 
         if scanned:
             candidate_names = scanned
-            warning = ""
         else:
             candidate_names = all_known_standard_pid_names()
-            warning = (
-                "\n\n**Note:** Could not scan the ECU for supported PIDs "
-                "(the vehicle may be off). All known standard PIDs are "
-                "shown; deselect any that aren't supported by your vehicle."
-            )
 
         preselect = [n for n in self._profile.standard_pids if n in candidate_names]
 
@@ -793,7 +760,6 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="standard_pids",
-            description_placeholders={"warning": warning},
             data_schema=vol.Schema(
                 {
                     vol.Required(
@@ -1000,19 +966,41 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                                 vol.Optional("blsb", default=defaults["blsb"]): bool,
                                 vol.Optional(
                                     "mul", default=defaults["mul"]
-                                ): _nullable_number_selector(),
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        mode=selector.NumberSelectorMode.BOX,
+                                    )
+                                ),
                                 vol.Optional(
                                     "div", default=defaults["div"]
-                                ): _nullable_number_selector(),
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        mode=selector.NumberSelectorMode.BOX,
+                                    )
+                                ),
                                 vol.Optional(
                                     "add", default=defaults["add"]
-                                ): _nullable_number_selector(),
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        mode=selector.NumberSelectorMode.BOX,
+                                    )
+                                ),
                                 vol.Optional(
-                                    "min", default=defaults["min"]
-                                ): _nullable_number_selector(),
+                                    "min",
+                                    description={"suggested_value": defaults["min"]},
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        mode=selector.NumberSelectorMode.BOX,
+                                    )
+                                ),
                                 vol.Optional(
-                                    "max", default=defaults["max"]
-                                ): _nullable_number_selector(),
+                                    "max",
+                                    description={"suggested_value": defaults["max"]},
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        mode=selector.NumberSelectorMode.BOX,
+                                    )
+                                ),
                                 vol.Optional(
                                     "map_text", default=defaults["map_text"]
                                 ): selector.TextSelector(
@@ -1069,11 +1057,25 @@ class Elm327ObdiiOptionsFlow(config_entries.OptionsFlow):
                                     ),
                                 ),
                                 vol.Optional(
-                                    "min_value", default=defaults.get("min_value")
-                                ): _nullable_number_selector(),
+                                    "min_value",
+                                    description={
+                                        "suggested_value": defaults.get("min_value")
+                                    },
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        mode=selector.NumberSelectorMode.BOX,
+                                    )
+                                ),
                                 vol.Optional(
-                                    "max_value", default=defaults.get("max_value")
-                                ): _nullable_number_selector(),
+                                    "max_value",
+                                    description={
+                                        "suggested_value": defaults.get("max_value")
+                                    },
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        mode=selector.NumberSelectorMode.BOX,
+                                    )
+                                ),
                                 vol.Optional(
                                     "expected_bytes",
                                     default=defaults.get("expected_bytes", 0),
