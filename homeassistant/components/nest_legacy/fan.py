@@ -47,6 +47,8 @@ class NestThermostatFan(NestEntity[NestThermostat], FanEntity):
     def __init__(self, coordinator: NestCoordinator, device: NestThermostat) -> None:
         """Initialize the fan."""
         super().__init__(coordinator, device)
+        # pylint: disable-next=home-assistant-entity-unique-id-redundant-platform
+        self._attr_unique_id = f"{device.serial_number}-fan"
         self._speed_range = (1, device.fan_max_speed)
 
     @override
