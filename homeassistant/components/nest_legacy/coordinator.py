@@ -5,12 +5,13 @@ from collections import deque
 import logging
 import random
 import time
-from typing import Any
+from typing import Any, override
 
 from aiohttp import ClientError
 from google.protobuf.json_format import MessageToDict
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_ACCESS_TOKEN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import device_registry as dr
@@ -18,7 +19,6 @@ from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
-    CONF_ACCESS_TOKEN,
     CONF_ACCOUNT_TYPE,
     CONF_COOKIES,
     CONF_ENABLE_PROTOBUF_CAMERA,
@@ -742,6 +742,7 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                 err,
             )
 
+    @override
     async def _async_update_data(self) -> dict[str, NestDevice]:
         """Update data via the coordinator.
 

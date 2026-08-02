@@ -1,6 +1,6 @@
 """Base class for Nest entities."""
 
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, Generic, TypeVar, cast, override
 
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -43,6 +43,7 @@ class NestEntity(CoordinatorEntity[NestCoordinator], Generic[DeviceT]):  # noqa:
             DeviceT, self.coordinator.data.get(self._device.serial_number, self._device)
         )
 
+    @override
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
