@@ -1,8 +1,10 @@
 """Event platform for Nest Legacy."""
 
 from dataclasses import dataclass
+from typing import override
 
 from homeassistant.components.event import (
+    DoorbellEventType,
     EventDeviceClass,
     EventEntity,
     EventEntityDescription,
@@ -70,7 +72,7 @@ _DESCRIPTIONS: tuple[NestEventEntityDescription, ...] = (
         key="chime",
         translation_key="chime",
         device_class=EventDeviceClass.DOORBELL,
-        event_types=[EVENT_TYPE_DOORBELL_CHIME],
+        event_types=[DoorbellEventType.RING],
         event_filter=["doorbell"],
         device_types=(NestDoorbell,),
     ),
@@ -164,6 +166,12 @@ class NestEventEntity(NestEntity[NestDevice], EventEntity):
             )
             return
 
+        # Doorbell event entities now have a standard `ring` event type.
+        # Integrations that use `EventDeviceClass.DOORBELL` must fire the
+        # standardized `DoorbellEventType.RING` event type.
+        if event_type == EVENT_TYPE_DOORBELL_CHIME:
+            event_type = DoorbellEventType.RING
+
         attributes = {
             "nest_event_id": nest_event.get("id"),
             "camera_uuid": nest_event.get("camera_uuid"),
@@ -183,6 +191,7 @@ class NestEventEntity(NestEntity[NestDevice], EventEntity):
         self._trigger_event(event_type, attributes)
         self.async_write_ha_state()
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register callbacks."""
         await super().async_added_to_hass()
