@@ -8,5 +8,9 @@
   "documentation": "https://www.home-assistant.io/integrations/nest_legacy",
   "integration_type": "hub",
   "iot_class": "cloud_push",
-  "requirements": ["bidict==0.24.1", "protobuf==6.32.0"]
+  "requirements": [
+    "bidict==0.24.1",
+    "googleapis-common-protos==1.75.2",
+    "protobuf==6.32.0"
+  ]
 }
