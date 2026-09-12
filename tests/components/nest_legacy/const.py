@@ -39,7 +39,11 @@ LOCK_SERIAL = "18B430DDDDDD0001"
 THERMOSTAT_SERIAL = "18B430DDDDDD0002"
 PROTECT_SERIAL = "18B430DDDDDD0003"
 CAMERA_SERIAL = "18B430DDDDDD0004"
+HEAT_LINK_SERIAL = "18B430DDDDDD0006"
 TEMP_SENSOR_SERIAL = "18B430DDDDDD0005"
+
+# 2026-09-06T05:30:00Z, the next time the hot water schedule switches over.
+HOT_WATER_TRANSITION_SECONDS = 1788672600
 
 _WHERE_FRONT_DOOR = "where-front-door"
 _WHERE_HALLWAY = "where-hallway"
@@ -146,6 +150,38 @@ def dual_fuel_trait(
     return trait
 
 
+def hot_water_traits() -> dict[str, Any]:
+    """Return the traits a protobuf thermostat driving a Heat Link adds.
+
+    Hot water is a European build, so tests opt into it rather than every
+    protobuf thermostat carrying a Heat Link.
+    """
+    capabilities = nest_hvac_pb2.HvacEquipmentCapabilitiesTrait(
+        hasStage1Heat=True,
+        hasStage1Cool=True,
+        hasHotWaterControl=True,
+        hasHotWaterTemperature=True,
+    )
+    hot_water = nest_hvac_pb2.HotWaterTrait(controlActive=True, boilerActive=True)
+    hot_water.nextTransitionTime.FromSeconds(HOT_WATER_TRANSITION_SECONDS)
+    hot_water.temperature.value = 54.5
+    settings = nest_hvac_pb2.HotWaterSettingsTrait(
+        structureModeFollowEnabled=True,
+        mode=nest_hvac_pb2.HotWaterSettingsTrait.HotWaterMode.HOT_WATER_MODE_SCHEDULE,
+    )
+    settings.temperature.value = 60.0
+    heat_link = nest_hvac_pb2.HeatLinkTrait()
+    heat_link.heatLinkModel.value = "Amber-2.5"
+    heat_link.heatLinkSerialNumber.value = HEAT_LINK_SERIAL
+    heat_link.heatLinkSwVersion.value = "2.1"
+    return {
+        _trait_key(nest_hvac_pb2.HvacEquipmentCapabilitiesTrait): capabilities,
+        _trait_key(nest_hvac_pb2.HotWaterTrait): hot_water,
+        _trait_key(nest_hvac_pb2.HotWaterSettingsTrait): settings,
+        _trait_key(nest_hvac_pb2.HeatLinkTrait): heat_link,
+    }
+
+
 def _thermostat_traits() -> dict[str, Any]:
     """Return the traits of a protobuf thermostat with a dual fuel system."""
     hvac = nest_hvac_pb2.HvacControlTrait()
@@ -153,7 +189,12 @@ def _thermostat_traits() -> dict[str, Any]:
         temperatureScale=nest_hvac_pb2.DisplaySettingsTrait.TemperatureScale.TEMPERATURE_SCALE_F
     )
     identity = weave_description_pb2.DeviceIdentityTrait(
-        serialNumber=THERMOSTAT_SERIAL, softwareVersion="6.2-24"
+        serialNumber=THERMOSTAT_SERIAL,
+        softwareVersion="6.2-24",
+        productIdDescription=weave_common_pb2.StringRef(
+            literal="Nest Thermostat E Display (1st Generation)"
+        ),
+        productRevision=8,
     )
     label = weave_description_pb2.LabelSettingsTrait(label="Upstairs")
     liveness = weave_heartbeat_pb2.LivenessTrait(
@@ -268,6 +309,8 @@ def protobuf_updates() -> dict[str, dict[str, Any]]:
 __all__ = [
     "CAMERA_KEY",
     "CAMERA_SERIAL",
+    "HEAT_LINK_SERIAL",
+    "HOT_WATER_TRANSITION_SECONDS",
     "LOCK_KEY",
     "LOCK_SERIAL",
     "PROTECT_KEY",
@@ -278,6 +321,7 @@ __all__ = [
     "THERMOSTAT_KEY",
     "THERMOSTAT_SERIAL",
     "dual_fuel_trait",
+    "hot_water_traits",
     "protobuf_updates",
     "weave_common_pb2",
 ]

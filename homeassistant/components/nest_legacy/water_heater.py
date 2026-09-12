@@ -78,9 +78,7 @@ class NestHeatLinkWaterHeater(NestEntity[NestHeatLink], WaterHeaterEntity):
     def supported_features(self) -> WaterHeaterEntityFeature:
         """Return the list of supported features."""
         features = (
-            WaterHeaterEntityFeature.OPERATION_MODE
-            | WaterHeaterEntityFeature.AWAY_MODE
-            | WaterHeaterEntityFeature.ON_OFF
+            WaterHeaterEntityFeature.OPERATION_MODE | WaterHeaterEntityFeature.ON_OFF
         )
         if self.device.has_hot_water_temperature:
             features |= WaterHeaterEntityFeature.TARGET_TEMPERATURE
@@ -112,6 +110,8 @@ class NestHeatLinkWaterHeater(NestEntity[NestHeatLink], WaterHeaterEntity):
     @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
+        if not self.device.has_hot_water_temperature:
+            return None
         return self.device.current_temperature
 
     @override
@@ -122,18 +122,17 @@ class NestHeatLinkWaterHeater(NestEntity[NestHeatLink], WaterHeaterEntity):
 
     @override
     @property
-    def is_away_mode_on(self) -> bool | None:
-        """Return true if away mode is on."""
-        return self.device.hot_water_away_enabled
-
-    @override
-    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the optional state attributes."""
         attrs: dict[str, Any] = {
             "boiler_active": self.device.hot_water_active,
             "hot_water_schedule_active": self.device.hot_water_control_active,
+            "away_active": self.device.hot_water_away_active,
         }
+        if self.device.hot_water_next_transition_time > 0:
+            attrs["next_transition_time"] = datetime.datetime.fromtimestamp(
+                self.device.hot_water_next_transition_time, datetime.UTC
+            )
         if self.device.hot_water_boost_time_to_end > 0:
             attrs["boost_timer_end"] = datetime.datetime.fromtimestamp(
                 self.device.hot_water_boost_time_to_end, datetime.UTC
@@ -185,13 +184,3 @@ class NestHeatLinkWaterHeater(NestEntity[NestHeatLink], WaterHeaterEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the water heater."""
         await self.async_set_operation_mode(STATE_OFF)
-
-    @override
-    async def async_turn_away_mode_on(self) -> None:
-        """Turn away mode on."""
-        await self._set_device_data({"hot_water_away_enabled": True})
-
-    @override
-    async def async_turn_away_mode_off(self) -> None:
-        """Turn away mode off."""
-        await self._set_device_data({"hot_water_away_enabled": False})

@@ -14,6 +14,7 @@ from .pynest.models import (
     NestCamera,
     NestDevice,
     NestDoorbell,
+    NestHeatLink,
     NestLock,
     NestProtect,
     NestTempSensor,
@@ -147,6 +148,14 @@ _DESCRIPTIONS: tuple[NestSwitchEntityDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         icon="mdi:water-plus",
         device_types=(NestThermostat,),
+    ),
+    # Heat Link
+    NestSwitchEntityDescription(
+        key="hot_water_away_enabled",
+        translation_key="home_away_assist",
+        entity_category=EntityCategory.CONFIG,
+        icon="mdi:home-export-outline",
+        device_types=(NestHeatLink,),
     ),
     # Temp Sensor
     NestSwitchEntityDescription(

@@ -12,6 +12,7 @@ from homeassistant.components.climate import (
     SERVICE_SET_HVAC_MODE,
     HVACMode,
 )
+from homeassistant.components.nest_legacy.const import CONF_EVENT_POLL_INTERVAL
 from homeassistant.components.nest_legacy.coordinator import NestCoordinator
 from homeassistant.components.nest_legacy.pynest.exceptions import (
     BadCredentialsException,
@@ -258,3 +259,38 @@ async def test_get_guests(
     assert LOCK_KEY in raw
     assert STRUCTURE_KEY in raw
     assert coordinator.get_guests() == {}
+
+
+@pytest.mark.parametrize(
+    ("options", "expect_polling"),
+    [
+        ({}, True),
+        ({CONF_EVENT_POLL_INTERVAL: 30}, True),
+        ({CONF_EVENT_POLL_INTERVAL: 0}, False),
+    ],
+    ids=["default", "interval", "zero"],
+)
+async def test_event_poll_interval_of_zero_disables_polling(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nest_client: AsyncMock,
+    options: dict[str, Any],
+    expect_polling: bool,
+) -> None:
+    """A 0 interval is what turns camera event polling off.
+
+    The poll must never start, rather than start and then do nothing, so there
+    is nothing left to wake up on a timer or to log about.
+    """
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(mock_config_entry, options=options)
+
+    with patch(
+        "homeassistant.components.nest_legacy.coordinator.NestCoordinator"
+        "._async_poll_camera_events",
+        new_callable=AsyncMock,
+    ) as poll:
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert poll.called is expect_polling

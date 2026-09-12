@@ -1242,6 +1242,7 @@ CLAUDE.md @home-assistant/core
 /homeassistant/components/nest/ @allenporter
 /tests/components/nest/ @allenporter
 /homeassistant/components/nest_legacy/ @tronikos
+/tests/components/nest_legacy/ @tronikos
 /homeassistant/components/netatmo/ @cgtobi
 /tests/components/netatmo/ @cgtobi
 /homeassistant/components/netdata/ @fabaff

@@ -6,17 +6,23 @@ from unittest.mock import AsyncMock
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
+from homeassistant.components.nest_legacy.pynest.protobuf_gen.nest.trait import (
+    hvac_pb2 as nest_hvac_pb2,
+)
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from . import setup_integration
+from .const import THERMOSTAT_KEY
 
 from tests.common import MockConfigEntry, snapshot_platform
 
 THERMOSTAT = "09AA00AA00AA0AAA"
 TEMPERATURE_ENTITY = "sensor.hallway_hallway_thermostat_temperature"
+HVAC_STAGE_ENTITY = "sensor.hallway_hallway_upstairs_hvac_stage"
+LEGACY_HVAC_STAGE_ENTITY = "sensor.hallway_hallway_thermostat_hvac_stage"
 SENSOR_TEMPERATURE_ENTITY = "sensor.bedroom_bedroom_sensor_temperature"
 SENSOR_BATTERY_ENTITY = "sensor.bedroom_bedroom_sensor_battery_level"
 PROTECT_BATTERY_ENTITY = "sensor.hallway_hallway_protect_battery_level"
@@ -91,3 +97,34 @@ async def test_internal_sensor_stays_readable_with_a_remote_sensor(
     assert hass.states.get(TEMPERATURE_ENTITY).state == "67.1"
     # And the remote sensor still reports itself.
     assert hass.states.get(SENSOR_TEMPERATURE_ENTITY).state == "67.1"
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_hvac_stage_reports_the_running_stage(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nest_client: AsyncMock,
+    observe_data: dict[str, dict[str, Any]],
+) -> None:
+    """The stage says which equipment is running; see issue #66."""
+    hvac_trait: nest_hvac_pb2.HvacControlTrait = observe_data[THERMOSTAT_KEY][
+        nest_hvac_pb2.HvacControlTrait.DESCRIPTOR.full_name
+    ]
+    hvac_trait.hvacState.heatStage2Active = True
+    await setup_integration(hass, mock_config_entry)
+
+    state = hass.states.get(HVAC_STAGE_ENTITY)
+    assert state is not None
+    assert state.state == "heat_stage_2"
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_hvac_stage_is_off_while_idle(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """An idle thermostat runs no stage, and the legacy API has no stage at all."""
+    state = hass.states.get(HVAC_STAGE_ENTITY)
+    assert state is not None
+    assert state.state == "off"
+
+    assert hass.states.get(LEGACY_HVAC_STAGE_ENTITY) is None

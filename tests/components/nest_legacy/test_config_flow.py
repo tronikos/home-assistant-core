@@ -11,13 +11,13 @@ from homeassistant.components.nest_legacy.const import (
     CONF_ACCOUNT_TYPE,
     CONF_COOKIES,
     CONF_ENABLE_PROTOBUF_CAMERA,
-    CONF_ENABLE_PROTOBUF_LOCK,
     CONF_ENABLE_PROTOBUF_PROTECT,
     CONF_ENABLE_PROTOBUF_STRUCTURE,
     CONF_ENABLE_PROTOBUF_THERMOSTAT,
     CONF_EVENT_POLL_INTERVAL,
     CONF_FIELD_TEST,
     CONF_ISSUE_TOKEN,
+    CONF_SECTION_PROTOBUF,
     DOMAIN,
 )
 from homeassistant.components.nest_legacy.pynest.exceptions import (
@@ -27,10 +27,11 @@ from homeassistant.components.nest_legacy.pynest.exceptions import (
     NestServiceException,
 )
 from homeassistant.components.nest_legacy.pynest.models import NestSession
-from homeassistant.config_entries import SOURCE_USER
+from homeassistant.config_entries import SOURCE_DHCP, SOURCE_USER
 from homeassistant.const import CONF_ACCESS_TOKEN
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from .conftest import EMAIL, USER_ID
 
@@ -185,6 +186,81 @@ async def test_duplicate_account_aborts(
     assert result["reason"] == "already_configured"
 
 
+async def test_dhcp_discovery_starts_user_flow(hass: HomeAssistant) -> None:
+    """DHCP discovery falls through to the normal account setup flow.
+
+    There is no custom async_step_dhcp; the inherited default
+    (_async_step_discovery_without_unique_id) shows the user step, so a
+    discovered Nest device is only a shortcut into the usual setup.
+    """
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_DHCP},
+        data=DhcpServiceInfo(
+            ip="192.168.1.5",
+            hostname="nest",
+            macaddress="18b430aabbcc",
+        ),
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+
+async def test_dhcp_discovery_aborts_if_already_in_progress(
+    hass: HomeAssistant,
+) -> None:
+    """A second concurrent DHCP discovery aborts instead of starting another flow."""
+    first = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_DHCP},
+        data=DhcpServiceInfo(
+            ip="192.168.1.5",
+            hostname="nest",
+            macaddress="18b430aabbcc",
+        ),
+    )
+    assert first["type"] is FlowResultType.FORM
+
+    second = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_DHCP},
+        data=DhcpServiceInfo(
+            ip="192.168.1.6",
+            hostname="nest",
+            macaddress="641666aabbcc",
+        ),
+    )
+
+    assert second["type"] is FlowResultType.ABORT
+    assert second["reason"] == "already_in_progress"
+
+
+async def test_dhcp_discovery_aborts_once_an_account_is_configured(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Discovery stops offering setup once any account exists.
+
+    The inherited default aborts as soon as the handler has a config entry,
+    so a second Nest account has to be added manually rather than through a
+    discovered device.
+    """
+    mock_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_DHCP},
+        data=DhcpServiceInfo(
+            ip="192.168.1.5",
+            hostname="nest",
+            macaddress="18b430aabbcc",
+        ),
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
 async def test_reauth(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -266,18 +342,27 @@ async def test_options_flow(
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
 
-    options = {
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_EVENT_POLL_INTERVAL: 30,
+            CONF_SECTION_PROTOBUF: {
+                CONF_ENABLE_PROTOBUF_THERMOSTAT: False,
+                CONF_ENABLE_PROTOBUF_STRUCTURE: True,
+                CONF_ENABLE_PROTOBUF_PROTECT: True,
+                CONF_ENABLE_PROTOBUF_CAMERA: False,
+            },
+        },
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    # The protobuf section is flattened away, so the coordinator and the client
+    # keep reading the options as a flat dict.
+    assert init_integration.options == {
         CONF_EVENT_POLL_INTERVAL: 30,
-        CONF_ENABLE_PROTOBUF_LOCK: False,
         CONF_ENABLE_PROTOBUF_THERMOSTAT: False,
         CONF_ENABLE_PROTOBUF_STRUCTURE: True,
         CONF_ENABLE_PROTOBUF_PROTECT: True,
         CONF_ENABLE_PROTOBUF_CAMERA: False,
     }
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], options
-    )
-    await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert init_integration.options == options

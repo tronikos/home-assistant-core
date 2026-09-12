@@ -188,6 +188,22 @@
       "humidity": {
         "name": "Humidity"
       },
+      "hvac_stage": {
+        "name": "HVAC stage",
+        "state": {
+          "alternate_heat_stage_1": "Alternate heating stage 1",
+          "alternate_heat_stage_2": "Alternate heating stage 2",
+          "auxiliary_heat": "Auxiliary heat",
+          "cool_stage_1": "Cooling stage 1",
+          "cool_stage_2": "Cooling stage 2",
+          "cool_stage_3": "Cooling stage 3",
+          "emergency_heat": "Emergency heat",
+          "heat_stage_1": "Heating stage 1",
+          "heat_stage_2": "Heating stage 2",
+          "heat_stage_3": "Heating stage 3",
+          "off": "Off"
+        }
+      },
       "last_action": {
         "name": "Last action",
         "state": {
@@ -234,6 +250,9 @@
       "heads_up": {
         "name": "Heads-up"
       },
+      "home_away_assist": {
+        "name": "Home/Away Assist"
+      },
       "humidifier": {
         "name": "Humidifier"
       },
@@ -278,16 +297,64 @@
       }
     }
   },
+  "exceptions": {
+    "camera_snapshot_failed": {
+      "message": "Error fetching a snapshot from {camera_name}."
+    },
+    "command_failed": {
+      "message": "Error calling {method_name}."
+    },
+    "command_retry_failed": {
+      "message": "Retry failed after re-authentication."
+    },
+    "config_entry_not_found": {
+      "message": "Config entry {config_entry_id} not found."
+    },
+    "device_not_found": {
+      "message": "Device ID {device_id} not found in registry."
+    },
+    "device_not_nest_legacy": {
+      "message": "Device {device_id} is not a Nest Legacy device."
+    },
+    "fan_not_supported": {
+      "message": "Entity {entity_id} does not support fan."
+    },
+    "integration_not_ready": {
+      "message": "Nest Legacy integration not ready."
+    },
+    "multiple_config_entries": {
+      "message": "Multiple Nest Legacy integrations found, please specify config_entry_id."
+    },
+    "no_config_entry": {
+      "message": "No Nest Legacy integration found."
+    },
+    "set_data_failed": {
+      "message": "Error setting data for Nest device {device_name}."
+    },
+    "unsupported_account_type": {
+      "message": "Unsupported account type in config entry: {account_type}."
+    }
+  },
   "options": {
     "step": {
       "user": {
         "data": {
-          "enable_protobuf_camera": "Enable Protobuf for cameras (recommended for Google accounts)",
-          "enable_protobuf_lock": "Enable Protobuf for locks (recommended)",
-          "enable_protobuf_protect": "Enable Protobuf for Protects (experimental)",
-          "enable_protobuf_structure": "Enable Protobuf for structure (experimental)",
-          "enable_protobuf_thermostat": "Enable Protobuf for thermostats (recommended)",
           "event_poll_interval": "Camera event poll interval (seconds)"
+        },
+        "data_description": {
+          "event_poll_interval": "How often to check for camera events. Set to 0 to disable camera event polling."
+        },
+        "sections": {
+          "protobuf": {
+            "data": {
+              "enable_protobuf_camera": "Cameras (recommended for Google accounts)",
+              "enable_protobuf_protect": "Protects (experimental)",
+              "enable_protobuf_structure": "Home/structure (experimental)",
+              "enable_protobuf_thermostat": "Thermostats (recommended)"
+            },
+            "description": "Choose which devices use the newer protobuf protocol instead of the legacy REST API. Leave these alone unless you are troubleshooting.",
+            "name": "Protocol selection"
+          }
         }
       }
     }

@@ -692,6 +692,18 @@ DHCP: Final[list[dict[str, str | bool]]] = [
         "macaddress": "D8EB46*",
     },
     {
+        "domain": "nest_legacy",
+        "macaddress": "18B430*",
+    },
+    {
+        "domain": "nest_legacy",
+        "macaddress": "641666*",
+    },
+    {
+        "domain": "nest_legacy",
+        "macaddress": "D8EB46*",
+    },
+    {
         "domain": "nexia",
         "hostname": "xl857-*",
         "macaddress": "000231*",

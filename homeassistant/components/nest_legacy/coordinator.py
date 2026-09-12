@@ -22,7 +22,6 @@ from .const import (
     CONF_ACCOUNT_TYPE,
     CONF_COOKIES,
     CONF_ENABLE_PROTOBUF_CAMERA,
-    CONF_ENABLE_PROTOBUF_LOCK,
     CONF_ENABLE_PROTOBUF_PROTECT,
     CONF_ENABLE_PROTOBUF_STRUCTURE,
     CONF_ENABLE_PROTOBUF_THERMOSTAT,
@@ -73,7 +72,6 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
         self.client = NestClient(
             async_create_clientsession(hass),
             field_test=entry.data.get(CONF_FIELD_TEST, False),
-            enable_protobuf_lock=entry.options.get(CONF_ENABLE_PROTOBUF_LOCK, True),
             enable_protobuf_thermostat=entry.options.get(
                 CONF_ENABLE_PROTOBUF_THERMOSTAT, True
             ),
@@ -155,7 +153,9 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                 )
             else:
                 raise HomeAssistantError(
-                    f"Unsupported account type in config entry: {account_type}"
+                    translation_domain=DOMAIN,
+                    translation_key="unsupported_account_type",
+                    translation_placeholders={"account_type": str(account_type)},
                 )
 
     async def async_initialize(self) -> None:
@@ -220,7 +220,8 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                 )
             except (ClientError, TimeoutError, PynestException) as err:
                 raise HomeAssistantError(
-                    "Retry failed after re-authentication"
+                    translation_domain=DOMAIN,
+                    translation_key="command_retry_failed",
                 ) from err
         except (ClientError, TimeoutError, PynestException) as err:
             _LOGGER.error(
@@ -231,7 +232,11 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                 data,
                 err,
             )
-            raise HomeAssistantError from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="set_data_failed",
+                translation_placeholders={"device_name": device.name},
+            ) from err
 
     async def async_send_client_command(
         self,
@@ -253,11 +258,16 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                 return await method(*args, **kwargs)
             except (ClientError, TimeoutError, PynestException) as err:
                 raise HomeAssistantError(
-                    "Retry failed after re-authentication"
+                    translation_domain=DOMAIN,
+                    translation_key="command_retry_failed",
                 ) from err
         except (ClientError, TimeoutError, PynestException) as err:
             _LOGGER.error("Error calling %s: %r", method_name, err)
-            raise HomeAssistantError from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="command_failed",
+                translation_placeholders={"method_name": method_name},
+            ) from err
 
     def get_guests(self) -> dict[str, list[dict[str, Any]]]:
         """Return guests from the raw protobuf data, keyed by structure ID."""
@@ -282,9 +292,15 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
             self._observe_task = self.config_entry.async_create_background_task(
                 self.hass, self._async_observe_for_updates(), "nest-observe-protobuf"
             )
-            self._poll_task = self.config_entry.async_create_background_task(
-                self.hass, self._async_poll_camera_events(), "nest-poll-events"
-            )
+            # An interval of 0 disables camera event polling.
+            if self.config_entry.options.get(
+                CONF_EVENT_POLL_INTERVAL, DEFAULT_EVENT_POLL_INTERVAL
+            ):
+                self._poll_task = self.config_entry.async_create_background_task(
+                    self.hass, self._async_poll_camera_events(), "nest-poll-events"
+                )
+            else:
+                _LOGGER.debug("Camera event polling is disabled, not starting it")
 
     def async_stop_subscriber(self) -> None:
         """Stop the background task."""
@@ -619,6 +635,12 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
             poll_interval = self.config_entry.options.get(
                 CONF_EVENT_POLL_INTERVAL, DEFAULT_EVENT_POLL_INTERVAL
             )
+            if not poll_interval:
+                # Normally the entry is reloaded when the option changes, so the
+                # task is never created. Stop rather than spin if it changes
+                # under us, since a 0 interval would sleep for 0 every loop.
+                _LOGGER.debug("Camera event polling is disabled, stopping it")
+                return
             loop_start = time.time()
 
             try:

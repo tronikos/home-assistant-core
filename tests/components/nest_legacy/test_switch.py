@@ -26,6 +26,7 @@ from tests.common import MockConfigEntry, snapshot_platform
 PATHLIGHT_ENTITY = "switch.hallway_hallway_protect_pathlight"
 STREAMING_ENTITY = "switch.front_door_front_door_doorbell_streaming"
 SENSOR_ENTITY = "switch.bedroom_bedroom_sensor_control_thermostat"
+HOME_AWAY_ASSIST_ENTITY = "switch.hallway_hallway_heat_link_home_away_assist"
 
 
 @pytest.fixture
@@ -64,6 +65,29 @@ async def test_toggle(
     device, data = mock_nest_client.async_set_device_data.call_args[0]
     assert device.serial_number == "09AA00AA00AA0AA1"
     assert data == {"night_light_enable": expected}
+
+
+@pytest.mark.parametrize(
+    ("service", "expected"),
+    [(SERVICE_TURN_ON, True), (SERVICE_TURN_OFF, False)],
+)
+async def test_hot_water_home_away_assist(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_nest_client: AsyncMock,
+    service: str,
+    expected: bool,
+) -> None:
+    """The Home/Away Assist setting is its own switch now; see issue #68."""
+    assert hass.states.get(HOME_AWAY_ASSIST_ENTITY).state == STATE_ON
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN, service, {ATTR_ENTITY_ID: HOME_AWAY_ASSIST_ENTITY}, blocking=True
+    )
+
+    device, data = mock_nest_client.async_set_device_data.call_args[0]
+    assert device.serial_number == "09AA00AA00AA0AAB"
+    assert data == {"hot_water_away_enabled": expected}
 
 
 async def test_states_follow_the_device(

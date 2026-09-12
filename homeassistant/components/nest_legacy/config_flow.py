@@ -15,19 +15,20 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_ACCESS_TOKEN
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .const import (
     CONF_ACCOUNT_TYPE,
     CONF_COOKIES,
     CONF_ENABLE_PROTOBUF_CAMERA,
-    CONF_ENABLE_PROTOBUF_LOCK,
     CONF_ENABLE_PROTOBUF_PROTECT,
     CONF_ENABLE_PROTOBUF_STRUCTURE,
     CONF_ENABLE_PROTOBUF_THERMOSTAT,
     CONF_EVENT_POLL_INTERVAL,
     CONF_FIELD_TEST,
     CONF_ISSUE_TOKEN,
+    CONF_SECTION_PROTOBUF,
     DEFAULT_EVENT_POLL_INTERVAL,
     DOMAIN,
     LOGGER,
@@ -189,7 +190,12 @@ class NestOptionsFlowHandler(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Handle options flow."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            # Flatten the section back out so the stored options stay a flat
+            # dict, which is what the coordinator and the client read.
+            protobuf_input = user_input.pop(CONF_SECTION_PROTOBUF, {})
+            return self.async_create_entry(
+                title="", data={**user_input, **protobuf_input}
+            )
 
         options = {
             vol.Optional(
@@ -197,36 +203,40 @@ class NestOptionsFlowHandler(OptionsFlowWithReload):
                 default=self.config_entry.options.get(
                     CONF_EVENT_POLL_INTERVAL, DEFAULT_EVENT_POLL_INTERVAL
                 ),
-            ): int,
-            vol.Optional(
-                CONF_ENABLE_PROTOBUF_LOCK,
-                default=self.config_entry.options.get(CONF_ENABLE_PROTOBUF_LOCK, True),
-            ): bool,
-            vol.Optional(
-                CONF_ENABLE_PROTOBUF_THERMOSTAT,
-                default=self.config_entry.options.get(
-                    CONF_ENABLE_PROTOBUF_THERMOSTAT, True
+            ): vol.All(vol.Coerce(int), vol.Range(min=0)),
+            vol.Required(CONF_SECTION_PROTOBUF): section(
+                vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_ENABLE_PROTOBUF_THERMOSTAT,
+                            default=self.config_entry.options.get(
+                                CONF_ENABLE_PROTOBUF_THERMOSTAT, True
+                            ),
+                        ): bool,
+                        vol.Optional(
+                            CONF_ENABLE_PROTOBUF_STRUCTURE,
+                            default=self.config_entry.options.get(
+                                CONF_ENABLE_PROTOBUF_STRUCTURE, False
+                            ),
+                        ): bool,
+                        vol.Optional(
+                            CONF_ENABLE_PROTOBUF_PROTECT,
+                            default=self.config_entry.options.get(
+                                CONF_ENABLE_PROTOBUF_PROTECT, False
+                            ),
+                        ): bool,
+                        vol.Optional(
+                            CONF_ENABLE_PROTOBUF_CAMERA,
+                            default=self.config_entry.options.get(
+                                CONF_ENABLE_PROTOBUF_CAMERA,
+                                self.config_entry.data.get(CONF_ACCOUNT_TYPE)
+                                == "google",
+                            ),
+                        ): bool,
+                    }
                 ),
-            ): bool,
-            vol.Optional(
-                CONF_ENABLE_PROTOBUF_STRUCTURE,
-                default=self.config_entry.options.get(
-                    CONF_ENABLE_PROTOBUF_STRUCTURE, False
-                ),
-            ): bool,
-            vol.Optional(
-                CONF_ENABLE_PROTOBUF_PROTECT,
-                default=self.config_entry.options.get(
-                    CONF_ENABLE_PROTOBUF_PROTECT, False
-                ),
-            ): bool,
-            vol.Optional(
-                CONF_ENABLE_PROTOBUF_CAMERA,
-                default=self.config_entry.options.get(
-                    CONF_ENABLE_PROTOBUF_CAMERA,
-                    self.config_entry.data.get(CONF_ACCOUNT_TYPE) == "google",
-                ),
-            ): bool,
+                options={"collapsed": True},
+            ),
         }
 
         return self.async_show_form(step_id="user", data_schema=vol.Schema(options))

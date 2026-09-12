@@ -402,7 +402,6 @@ class NestClient:
         self,
         session: ClientSession | None = None,
         field_test: bool = False,
-        enable_protobuf_lock: bool = True,
         enable_protobuf_thermostat: bool = True,
         enable_protobuf_structure: bool = False,
         enable_protobuf_protect: bool = False,
@@ -419,8 +418,8 @@ class NestClient:
         self._buckets_for_subscription: list[Bucket] = []
         self._resource_types: dict[str, str] = {}
         self._legacy_protobuf_events_warned: bool = False
+        self._protobuf_events_unauthorized: set[str] = set()
 
-        self._enable_protobuf_lock = enable_protobuf_lock
         self._enable_protobuf_thermostat = enable_protobuf_thermostat
         self._enable_protobuf_structure = enable_protobuf_structure
         self._enable_protobuf_protect = enable_protobuf_protect
@@ -429,14 +428,15 @@ class NestClient:
         # Build set of traits to observe based on flags
         self._observe_traits: set[type[Message]] = set()
         self._observe_traits.update(_OBSERVER_ALWAYS_INCLUDE_TRAITS)
+        # Locks are only ever exposed over protobuf, so their traits are
+        # unconditional; there is no REST alternative to fall back to.
+        self._observe_traits.update(_OBSERVE_LOCK_TRAITS)
         if enable_protobuf_protect:
             self._observe_traits.update(_OBSERVE_PROTECT_TRAITS)
         if enable_protobuf_camera:
             self._observe_traits.update(_OBSERVE_CAMERA_TRAITS)
         if enable_protobuf_thermostat:
             self._observe_traits.update(_OBSERVE_THERMOSTAT_TRAITS)
-        if enable_protobuf_lock:
-            self._observe_traits.update(_OBSERVE_LOCK_TRAITS)
         if enable_protobuf_structure:
             self._observe_traits.update(_OBSERVE_STRUCTURE_TRAITS)
 
@@ -2408,6 +2408,19 @@ class NestClient:
 
         try:
             resp = await self._async_send_command(device, command)
+        except NonRetryablePynestException as err:
+            # Some accounts are not authorized for the camera_observation_history
+            # trait and answer with PERMISSION_DENIED on every poll (see issue #61).
+            # This never recovers, so warn once and stop polling this camera.
+            self._protobuf_events_unauthorized.add(device.object_key)
+            _LOGGER.warning(
+                "Protobuf camera events are not available for %s %s, "
+                "no longer polling it for events: %r",
+                device.location,
+                device.name,
+                err,
+            )
+            return []
         except PynestException as err:
             _LOGGER.warning("Failed to fetch protobuf camera events: %r", err)
             return []
@@ -2465,6 +2478,8 @@ class NestClient:
                         "Protobuf camera events are not supported for legacy Nest accounts"
                     )
                     self._legacy_protobuf_events_warned = True
+                return []
+            if device.object_key in self._protobuf_events_unauthorized:
                 return []
             return await self._async_get_protobuf_camera_events(
                 device, start_time, end_time

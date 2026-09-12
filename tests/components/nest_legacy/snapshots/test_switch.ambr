@@ -571,6 +571,58 @@
     'state': 'on',
   })
 # ---
+# name: test_entities[switch.hallway_hallway_heat_link_home_away_assist-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'switch',
+    'entity_category': <EntityCategory.CONFIG: 'config'>,
+    'entity_id': 'switch.hallway_hallway_heat_link_home_away_assist',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Home/Away Assist',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': 'mdi:home-export-outline',
+    'original_name': 'Home/Away Assist',
+    'platform': 'nest_legacy',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'home_away_assist',
+    'unique_id': '09AA00AA00AA0AAB-hot_water_away_enabled',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[switch.hallway_hallway_heat_link_home_away_assist-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.ATTRIBUTION: 'attribution'>: 'Data provided by Google/Nest',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Hallway Heat Link Home/Away Assist',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:home-export-outline',
+    }),
+    'context': <ANY>,
+    'entity_id': 'switch.hallway_hallway_heat_link_home_away_assist',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
 # name: test_entities[switch.hallway_hallway_landing_heads_up-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([

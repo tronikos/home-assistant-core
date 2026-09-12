@@ -13,6 +13,7 @@ from .enums import (
     StructureMode,
     TemperatureScale,
     ThermostatHvacMode,
+    ThermostatHvacStage,
     ThermostatHvacState,
 )
 
@@ -42,6 +43,15 @@ class NestDevice:
     def hardware_version(self) -> str | None:
         """Return hardware version if available."""
         return None
+
+    @property
+    def hardware_serial_number(self) -> str | None:
+        """Return the serial number the device reports, if it reports one.
+
+        __post_init__ falls back to the object key when the API omits a serial,
+        and that placeholder should not be shown as a serial number.
+        """
+        return None if self.serial_number == self.object_key else self.serial_number
 
 
 # --- Specific Device Models ---
@@ -113,6 +123,9 @@ class NestThermostat(NestDevice):
     target_humidity: float | None = None
     hvac_state: ThermostatHvacState = ThermostatHvacState.OFF
     hvac_mode: ThermostatHvacMode = ThermostatHvacMode.OFF
+    # Which stage the equipment is running, OFF when idle. None on the legacy
+    # API, which reports heating/cooling without the stage.
+    hvac_stage: ThermostatHvacStage | None = None
     is_eco_mode: bool = False
     can_heat: bool = False
     can_cool: bool = False
@@ -138,6 +151,8 @@ class NestThermostat(NestDevice):
     has_hot_water_temperature: bool = False
     hot_water_mode: HotWaterMode = HotWaterMode.OFF
     hot_water_away_enabled: bool = False
+    hot_water_away_active: bool = False
+    hot_water_next_transition_time: int = 0
     hot_water_boost_time_to_end: int = 0
     hot_water_temperature: float | None = None
     current_water_temperature: float | None = None
@@ -150,6 +165,19 @@ class NestThermostat(NestDevice):
     has_dual_fuel: bool = False
     dual_fuel_breakpoint: float | None = None
     dual_fuel_breakpoint_override: DualFuelBreakpointOverride | None = None
+    # Raw hardware identity, as reported by the device itself (protobuf only)
+    product_id_description: str | None = None
+    product_revision: int | None = None
+
+    @override
+    @property
+    def hardware_version(self) -> str | None:
+        """Return the device's own hardware model and revision, if known."""
+        if not self.product_id_description:
+            return None
+        if self.product_revision is None:
+            return self.product_id_description
+        return f"{self.product_id_description} rev {self.product_revision}"
 
 
 @dataclass(frozen=True)
@@ -191,6 +219,8 @@ class NestDoorbell(NestCamera):
 class NestHeatLink(NestDevice):
     """Represents a Nest Heat Link (for hot water control)."""
 
+    # False when the serial number is derived from the thermostat's own.
+    has_own_serial_number: bool = False
     associated_thermostat_object_key: str | None = None
     has_hot_water_control: bool = False
     hot_water_active: bool = False
@@ -199,9 +229,17 @@ class NestHeatLink(NestDevice):
     hot_water_boost_time_to_end: int = 0
     hot_water_mode: HotWaterMode = HotWaterMode.OFF
     hot_water_away_enabled: bool = False
+    hot_water_away_active: bool = False
+    hot_water_next_transition_time: int = 0
     current_temperature: float | None = None
     target_temperature: float | None = None
     temperature_scale: TemperatureScale | None = None
+
+    @override
+    @property
+    def hardware_serial_number(self) -> str | None:
+        """Return a serial number only when the heat link reports one."""
+        return super().hardware_serial_number if self.has_own_serial_number else None
 
 
 @dataclass(frozen=True)
