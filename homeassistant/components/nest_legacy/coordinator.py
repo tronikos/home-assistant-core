@@ -628,6 +628,39 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                 await asyncio.sleep(delay)
                 continue
 
+    def _cameras_to_poll(self) -> list[NestCamera]:
+        """Return the cameras whose events should be polled.
+
+        A camera is polled only if it is online, streaming, and its device is
+        not disabled in the device registry. Disabling a device is how a user
+        says they do not want it, and it disables every entity that could show
+        an event, so polling it would only spend API calls on nothing.
+
+        Evaluated on every poll, so enabling or disabling a camera takes effect
+        on the next cycle without a reload.
+        """
+        disabled = self._disabled_device_serials()
+        return [
+            device
+            for device in self.data.values()
+            if isinstance(device, NestCamera)
+            and device.online
+            and device.streaming_enabled
+            and device.serial_number not in disabled
+        ]
+
+    def _disabled_device_serials(self) -> set[str]:
+        """Return the serial numbers of this entry's disabled devices."""
+        device_registry = dr.async_get(self.hass)
+        return {
+            identifier[1]
+            for device_entry in dr.async_entries_for_config_entry(
+                device_registry, self.config_entry.entry_id
+            )
+            if device_entry.disabled
+            for identifier in device_entry.identifiers
+        }
+
     async def _async_poll_camera_events(self) -> None:
         """Poll the camera cuepoint API for events."""
         failures = 0
@@ -659,10 +692,7 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                     self._async_process_events_for_device(
                         device, start_time, poll_interval
                     )
-                    for device in self.data.values()
-                    if isinstance(device, NestCamera)
-                    and device.online
-                    and device.streaming_enabled
+                    for device in self._cameras_to_poll()
                 ]
                 if tasks:
                     await asyncio.gather(*tasks)
