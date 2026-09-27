@@ -2,6 +2,8 @@
 
 import asyncio
 import contextlib
+import datetime
+from email.utils import parsedate_to_datetime
 import logging
 import time
 from typing import Any, TypeVar
@@ -278,7 +280,7 @@ _DUAL_FUEL_OVERRIDE_MAP: dict[
     ),
 }
 
-_USER_AGENT = "Nest/5.82.2 (iOScom.nestlabs.jasper.release) os=18.5"
+_USER_AGENT = "Nest/5.87.0 (iOScom.nestlabs.jasper.release) os=26.4"
 
 _NEST_ENVIRONMENTS: dict[str, NestEnvironment] = {
     Environment.PRODUCTION: NestEnvironment(
@@ -395,6 +397,71 @@ def _transient_exception(status: int, message: str) -> NestServiceException:
     return NestServiceException(message)
 
 
+def _is_expired_set_cookie(attributes: list[str]) -> bool:
+    """Return True if Set-Cookie attributes delete the cookie."""
+    max_age: str | None = None
+    expires: str | None = None
+    for attribute in attributes:
+        key, _, value = attribute.strip().partition("=")
+        if key.lower() == "max-age":
+            max_age = value.strip()
+        elif key.lower() == "expires":
+            expires = value.strip()
+    # Max-Age takes precedence over Expires (RFC 6265 section 5.3).
+    if max_age is not None:
+        with contextlib.suppress(ValueError):
+            return int(max_age) <= 0
+    if expires:
+        try:
+            expiry = parsedate_to_datetime(expires)
+        except ValueError:
+            return False
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=datetime.UTC)
+        # pynest is kept free of homeassistant imports, so dt_util.utcnow()
+        # is not available here.
+        # pylint: disable-next=home-assistant-enforce-utcnow
+        return expiry <= datetime.datetime.now(datetime.UTC)
+    return False
+
+
+def _merge_set_cookie_headers(
+    cookies: str, set_cookie_headers: list[str]
+) -> tuple[str, list[str]]:
+    """Apply Set-Cookie response headers to a Cookie request header value.
+
+    Returns the updated Cookie value and the names of the cookies that
+    changed. The original string is returned untouched when nothing changed.
+
+    Only the leading name=value pair of a Set-Cookie header is the cookie.
+    The rest are attributes, which Python's cookie parsers, including the one
+    behind aiohttp's ClientResponse.cookies, turn into bogus cookies when they
+    don't recognize them, e.g. Google's "priority=high".
+    """
+    jar: dict[str, str] = {}
+    for pair in cookies.split(";"):
+        name, sep, value = pair.strip().partition("=")
+        if sep and name:
+            jar[name] = value
+    changed: list[str] = []
+    for header in set_cookie_headers:
+        pair, *attributes = header.split(";")
+        name, sep, value = pair.partition("=")
+        name = name.strip()
+        value = value.strip()
+        if not sep or not name:
+            continue
+        if _is_expired_set_cookie(attributes):
+            if jar.pop(name, None) is not None:
+                changed.append(name)
+        elif jar.get(name) != value:
+            jar[name] = value
+            changed.append(name)
+    if not changed:
+        return cookies, changed
+    return "; ".join(f"{name}={value}" for name, value in jar.items()), changed
+
+
 class NestClient:
     """Interface class for the Nest API."""
 
@@ -413,6 +480,7 @@ class NestClient:
             Environment.FIELDTEST if field_test else Environment.PRODUCTION
         ]
         self._nest_session: NestSession | None = None
+        self._google_cookies: str | None = None
         self._camera_session_token: str | None = None
         self._raw_data: dict[str, Any] = {}
         self._buckets_for_subscription: list[Bucket] = []
@@ -500,6 +568,16 @@ class NestClient:
                 "cookie": cookies,
             },
         ) as response:
+            # Google rotates some cookies (SIDCC, __Secure-1PSIDCC,
+            # __Secure-3PSIDCC, ...) on every token request and stops
+            # accepting the superseded values after a rotation or two. Record
+            # them before anything else can fail: the rotation has already
+            # happened on Google's side either way.
+            self._google_cookies, rotated = _merge_set_cookie_headers(
+                cookies, response.headers.getall("Set-Cookie", [])
+            )
+            if rotated:
+                _LOGGER.debug("Google rotated cookies: %s", ", ".join(rotated))
             result = await response.json()
             if "error" in result:
                 raise BadCredentialsException(result.get("detail", result["error"]))
@@ -637,6 +715,16 @@ class NestClient:
                 self._nest_session.email,
             )
             return self._nest_session
+
+    @property
+    def google_cookies(self) -> str | None:
+        """Return the Google cookies including any that Google rotated.
+
+        None until a Google token has been requested. Callers that store the
+        cookies should save this value after every Google authentication, even
+        a failed one, so the next attempt doesn't reuse superseded cookies.
+        """
+        return self._google_cookies
 
     def is_expired(self) -> bool:
         """Check if the current session is expired."""

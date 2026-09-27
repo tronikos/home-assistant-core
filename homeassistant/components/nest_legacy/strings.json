@@ -9,6 +9,8 @@
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "invalid_cookies": "The cookies don't include a Google sign-in session (`SID`, `__Secure-1PSID` or `__Secure-3PSID`). Copy the entire `Cookie` request header value of the `iframerpc` request. Selecting it by hand can cut it short, so use your browser's Copy Value.",
+      "invalid_issue_token": "The issue token must be the full URL of the `iframerpc` request. It starts with `{issue_token_prefix}` and contains `action=issueToken`.",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "step": {
@@ -17,14 +19,14 @@
           "cookies": "Cookies",
           "issue_token": "Issue token"
         },
-        "description": "To get your `issue_token` and `cookies`, follow the instructions in the integration documentation. Please paste them below.",
+        "description": "Sign in to home.nest.com with Google in a Firefox private window, copy the `issue_token` and `cookies` from the `iframerpc` request, then close the window without signing out. Credentials from Chrome or Edge stop working within hours. See the [instructions]({docs_url}).",
         "title": "Google account authentication"
       },
       "nest_account": {
         "data": {
           "access_token": "Access token"
         },
-        "description": "To get your `access_token`, follow the instructions in the integration documentation for legacy Nest accounts. Please paste it below.",
+        "description": "To get your `access_token`, follow the [instructions]({docs_url}) for legacy Nest accounts. Please paste it below.",
         "title": "Nest account authentication"
       },
       "user": {

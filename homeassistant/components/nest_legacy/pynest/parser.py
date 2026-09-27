@@ -1454,6 +1454,8 @@ class NestParser:
                 "google.resource.AzizResource",
             ):
                 return "Cam with Floodlight (1st gen, wired)"
+            if resource_type == "google.resource.GoogleNewmanResource":
+                return "Hub Max (1st gen, wired)"
 
         return "Doorbell (unknown)" if is_doorbell else "Camera (unknown)"
 

@@ -8,6 +8,7 @@ import pytest
 from homeassistant.components.nest_legacy.pynest.client import (
     NestClient,
     _is_transient_status,
+    _merge_set_cookie_headers,
     _transient_exception,
 )
 from homeassistant.components.nest_legacy.pynest.exceptions import (
@@ -26,6 +27,15 @@ from tests.test_util.aiohttp import AiohttpClientMocker
 
 SESSION_URL = "https://home.nest.com/session"
 CAMERA_LOGIN_URL = "https://webapi.camera.home.nest.com/api/v1/login.login_nest"
+ISSUE_TOKEN_URL = "https://accounts.google.com/o/oauth2/iframerpc"
+JWT_URL = "https://nestauthproxyservice-pa.googleapis.com/v1/issue_jwt"
+GOOGLE_TOKEN_RESPONSE = {
+    "access_token": "google-access-token",
+    "scope": "openid",
+    "token_type": "Bearer",
+    "expires_in": 3599,
+    "id_token": "google-id-token",
+}
 
 SESSION_RESPONSE: dict[str, Any] = {
     "access_token": "test-access-token",
@@ -378,3 +388,84 @@ async def test_subscribe_requires_session(client: NestClient) -> None:
     """Subscribing before authenticating is a programming error."""
     with pytest.raises(NotAuthenticatedException):
         await client.async_subscribe_for_updates()
+
+
+@pytest.mark.parametrize(
+    ("set_cookie_headers", "expected", "rotated"),
+    [
+        (
+            ["SIDCC=new; expires=Sat, 25-Sep-2100 10:00:00 GMT; path=/; Secure"],
+            "SID=a; SIDCC=new; NID=c",
+            ["SIDCC"],
+        ),
+        (
+            ["__Secure-3PSIDCC=x-/y=; path=/; domain=.google.com; priority=high"],
+            "SID=a; SIDCC=b; NID=c; __Secure-3PSIDCC=x-/y=",
+            ["__Secure-3PSIDCC"],
+        ),
+        (["NID=; Max-Age=0; path=/"], "SID=a; SIDCC=b", ["NID"]),
+        (
+            ["NID=gone; expires=Mon, 01-Jan-1990 00:00:00 GMT"],
+            "SID=a; SIDCC=b",
+            ["NID"],
+        ),
+        # Max-Age wins over Expires.
+        (
+            ["NID=kept; Max-Age=600; expires=Mon, 01-Jan-1990 00:00:00 GMT"],
+            "SID=a; SIDCC=b; NID=kept",
+            ["NID"],
+        ),
+        (["SIDCC=b; path=/", "OTHER=; Max-Age=0"], "SID=a;SIDCC=b; NID=c", []),
+        ([], "SID=a;SIDCC=b; NID=c", []),
+    ],
+)
+def test_merge_set_cookie_headers(
+    set_cookie_headers: list[str], expected: str, rotated: list[str]
+) -> None:
+    """Set-Cookie headers update, add and delete cookies in the Cookie header."""
+    assert _merge_set_cookie_headers("SID=a;SIDCC=b; NID=c", set_cookie_headers) == (
+        expected,
+        rotated,
+    )
+
+
+async def test_google_auth_keeps_rotated_cookies(
+    client: NestClient, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The cookies Google rotates while issuing a token are kept."""
+    aioclient_mock.get(
+        ISSUE_TOKEN_URL,
+        json=GOOGLE_TOKEN_RESPONSE,
+        headers=[
+            ("Set-Cookie", "SIDCC=new; path=/; priority=high"),
+            ("Set-Cookie", "__Secure-3PSIDCC=new3; path=/; Secure"),
+        ],
+    )
+    aioclient_mock.post(JWT_URL, json={"jwt": "nest-jwt"})
+    aioclient_mock.get(SESSION_URL, json=SESSION_RESPONSE)
+
+    assert client.google_cookies is None
+    await client.async_authenticate_with_google_credentials(
+        ISSUE_TOKEN_URL, "SID=a; SIDCC=old; __Secure-3PSIDCC=old3"
+    )
+
+    assert client.google_cookies == "SID=a; SIDCC=new; __Secure-3PSIDCC=new3"
+
+
+async def test_google_auth_keeps_rotated_cookies_on_failure(
+    client: NestClient, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Google has superseded the old cookies even when a later step fails."""
+    aioclient_mock.get(
+        ISSUE_TOKEN_URL,
+        json=GOOGLE_TOKEN_RESPONSE,
+        headers=[("Set-Cookie", "SIDCC=new; path=/")],
+    )
+    aioclient_mock.post(JWT_URL, json={})
+
+    with pytest.raises(BadCredentialsException):
+        await client.async_authenticate_with_google_credentials(
+            ISSUE_TOKEN_URL, "SID=a; SIDCC=old"
+        )
+
+    assert client.google_cookies == "SID=a; SIDCC=new"

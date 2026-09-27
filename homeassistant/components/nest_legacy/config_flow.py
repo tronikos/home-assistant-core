@@ -1,6 +1,7 @@
 """Adds config flow for Nest."""
 
 from collections.abc import Mapping
+import re
 from typing import Any, override
 
 from aiohttp import ClientError
@@ -37,6 +38,46 @@ from .coordinator import NestConfigEntry
 from .pynest.client import NestClient
 from .pynest.exceptions import BadCredentialsException, NestServiceException
 
+_DOCS_URL = "https://github.com/tronikos/nest_legacy#configuration"
+_ISSUE_TOKEN_PREFIX = "https://accounts.google.com/o/oauth2/iframerpc"
+# At least one of these carries the Google sign-in session. A cookie string
+# without any of them was copied from the wrong request or got truncated.
+_GOOGLE_SESSION_COOKIES = ("SID", "__Secure-1PSID", "__Secure-3PSID")
+
+
+def _unwrap(value: str) -> str:
+    """Undo line wrapping that pasting a long value can introduce."""
+    return "".join(line.strip() for line in value.splitlines())
+
+
+def _normalize_google_input(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Clean up pasted Google credentials."""
+    cookies = _unwrap(user_input[CONF_COOKIES])
+    # Drop the header name in case the whole "Cookie: ..." line was copied.
+    cookies = re.sub(r"^cookie:\s*", "", cookies, flags=re.IGNORECASE)
+    return {
+        **user_input,
+        CONF_ISSUE_TOKEN: _unwrap(user_input[CONF_ISSUE_TOKEN]),
+        CONF_COOKIES: cookies,
+    }
+
+
+def _google_input_errors(user_input: dict[str, Any]) -> dict[str, str]:
+    """Catch Google credentials that were copied from the wrong place."""
+    errors: dict[str, str] = {}
+    issue_token: str = user_input[CONF_ISSUE_TOKEN]
+    if (
+        not issue_token.startswith(_ISSUE_TOKEN_PREFIX)
+        or "action=issueToken" not in issue_token
+    ):
+        errors[CONF_ISSUE_TOKEN] = "invalid_issue_token"
+    cookie_names = {
+        pair.partition("=")[0].strip() for pair in user_input[CONF_COOKIES].split(";")
+    }
+    if cookie_names.isdisjoint(_GOOGLE_SESSION_COOKIES):
+        errors[CONF_COOKIES] = "invalid_cookies"
+    return errors
+
 
 class NestConfigFlow(ConfigFlow, domain=DOMAIN):
     """Config flow for Nest."""
@@ -56,12 +97,16 @@ class NestConfigFlow(ConfigFlow, domain=DOMAIN):
         client = NestClient(async_create_clientsession(self.hass), field_test)
 
         nest_session = None
+        data: dict[str, Any] = {}
         if account_type == "google":
             issue_token = user_input[CONF_ISSUE_TOKEN]
             cookies = user_input[CONF_COOKIES]
             nest_session = await client.async_authenticate_with_google_credentials(
                 issue_token, cookies
             )
+            # Validating already made Google rotate some cookies, and the
+            # pasted values stop working after a rotation or two.
+            data[CONF_COOKIES] = client.google_cookies or cookies
         elif account_type == "nest":
             access_token = user_input[CONF_ACCESS_TOKEN]
             nest_session = await client.async_authenticate_with_nest_token(access_token)
@@ -69,7 +114,10 @@ class NestConfigFlow(ConfigFlow, domain=DOMAIN):
             raise ValueError("Invalid account type")
 
         await self.async_set_unique_id(nest_session.user)
-        return {"title": f"Nest{' FT' if field_test else ''} ({nest_session.email})"}
+        return {
+            "title": f"Nest{' FT' if field_test else ''} ({nest_session.email})",
+            "data": data,
+        }
 
     @override
     async def async_step_user(
@@ -101,10 +149,11 @@ class NestConfigFlow(ConfigFlow, domain=DOMAIN):
         step_id: str,
         schema: vol.Schema,
         user_input: dict[str, Any] | None,
+        errors: dict[str, str] | None = None,
     ) -> ConfigFlowResult:
         """Show form, validate input, and handle exceptions."""
-        errors: dict[str, str] = {}
-        if user_input:
+        errors = errors or {}
+        if user_input and not errors:
             try:
                 info = await self._validate_input(user_input)
             except TimeoutError, ClientError, NestServiceException:
@@ -115,7 +164,7 @@ class NestConfigFlow(ConfigFlow, domain=DOMAIN):
                 LOGGER.exception("Unknown error during validation")
                 errors["base"] = "unknown"
             else:
-                data = {**self._options, **user_input}
+                data = {**self._options, **user_input, **info["data"]}
                 if self.source == SOURCE_REAUTH:
                     self._abort_if_unique_id_mismatch(reason="wrong_account")
                     return self.async_update_reload_and_abort(
@@ -130,7 +179,15 @@ class NestConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(title=info["title"], data=data)
 
-        return self.async_show_form(step_id=step_id, data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            errors=errors,
+            description_placeholders={
+                "docs_url": _DOCS_URL,
+                "issue_token_prefix": _ISSUE_TOKEN_PREFIX,
+            },
+        )
 
     async def async_step_google_account(
         self, user_input: dict[str, Any] | None = None
@@ -139,8 +196,12 @@ class NestConfigFlow(ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {vol.Required(CONF_ISSUE_TOKEN): str, vol.Required(CONF_COOKIES): str}
         )
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            user_input = _normalize_google_input(user_input)
+            errors = _google_input_errors(user_input)
         return await self._show_form_and_handle_errors(
-            "google_account", schema, user_input
+            "google_account", schema, user_input, errors
         )
 
     async def async_step_nest_account(

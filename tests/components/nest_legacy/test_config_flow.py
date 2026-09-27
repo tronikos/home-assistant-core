@@ -37,8 +37,11 @@ from .conftest import EMAIL, USER_ID
 
 from tests.common import MockConfigEntry
 
+ISSUE_TOKEN = (
+    "https://accounts.google.com/o/oauth2/iframerpc?action=issueToken&client_id=test"
+)
 GOOGLE_INPUT = {
-    CONF_ISSUE_TOKEN: "https://accounts.google.com/o/oauth2/iframerpc?test",
+    CONF_ISSUE_TOKEN: ISSUE_TOKEN,
     CONF_COOKIES: "OCAK=test; SID=test",
 }
 NEST_INPUT = {CONF_ACCESS_TOKEN: "test-legacy-token"}
@@ -53,6 +56,8 @@ def mock_config_flow_client(nest_session: NestSession) -> Generator[AsyncMock]:
         client = client_class.return_value
         client.async_authenticate_with_google_credentials.return_value = nest_session
         client.async_authenticate_with_nest_token.return_value = nest_session
+        # Google rotated nothing unless a test says otherwise.
+        client.google_cookies = None
         yield client
 
 
@@ -169,6 +174,94 @@ async def test_errors_then_recovery(
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
+async def test_stores_rotated_cookies(
+    hass: HomeAssistant,
+    mock_config_flow_client: AsyncMock,
+    mock_setup_entry: AsyncMock,
+) -> None:
+    """The entry keeps the cookies Google rotated while validating them."""
+    mock_config_flow_client.google_cookies = "OCAK=test; SID=test; SIDCC=rotated"
+
+    result = await _start_account_flow(hass, "google")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], GOOGLE_INPUT
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_COOKIES] == "OCAK=test; SID=test; SIDCC=rotated"
+
+
+async def test_cleans_up_pasted_credentials(
+    hass: HomeAssistant,
+    mock_config_flow_client: AsyncMock,
+    mock_setup_entry: AsyncMock,
+) -> None:
+    """Surrounding whitespace, line wrapping and a "Cookie:" prefix are dropped."""
+    result = await _start_account_flow(hass, "google")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_ISSUE_TOKEN: f"  {ISSUE_TOKEN[:40]}\n{ISSUE_TOKEN[40:]}\n",
+            CONF_COOKIES: "Cookie: OCAK=test;\n SID=test ",
+        },
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    mock_config_flow_client.async_authenticate_with_google_credentials.assert_awaited_once_with(
+        ISSUE_TOKEN, "OCAK=test;SID=test"
+    )
+    assert result["data"][CONF_ISSUE_TOKEN] == ISSUE_TOKEN
+    assert result["data"][CONF_COOKIES] == "OCAK=test;SID=test"
+
+
+@pytest.mark.parametrize(
+    ("user_input", "expected"),
+    [
+        (
+            {
+                **GOOGLE_INPUT,
+                CONF_ISSUE_TOKEN: "https://accounts.google.com/o/oauth2/iframe",
+            },
+            {CONF_ISSUE_TOKEN: "invalid_issue_token"},
+        ),
+        (
+            {**GOOGLE_INPUT, CONF_ISSUE_TOKEN: "iframerpc?action=issueToken"},
+            {CONF_ISSUE_TOKEN: "invalid_issue_token"},
+        ),
+        (
+            {**GOOGLE_INPUT, CONF_COOKIES: "OCAK=test; SIDCC=test"},
+            {CONF_COOKIES: "invalid_cookies"},
+        ),
+        (
+            {CONF_ISSUE_TOKEN: "nonsense", CONF_COOKIES: "nonsense"},
+            {CONF_ISSUE_TOKEN: "invalid_issue_token", CONF_COOKIES: "invalid_cookies"},
+        ),
+    ],
+)
+async def test_malformed_google_credentials(
+    hass: HomeAssistant,
+    mock_config_flow_client: AsyncMock,
+    mock_setup_entry: AsyncMock,
+    user_input: dict[str, str],
+    expected: dict[str, str],
+) -> None:
+    """Credentials copied from the wrong place are caught before calling Google."""
+    result = await _start_account_flow(hass, "google")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == expected
+    mock_config_flow_client.async_authenticate_with_google_credentials.assert_not_called()
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], GOOGLE_INPUT
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
 async def test_duplicate_account_aborts(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -276,7 +369,7 @@ async def test_reauth(
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_ISSUE_TOKEN: "https://accounts.google.com/new", CONF_COOKIES: "SID=new"},
+        {CONF_ISSUE_TOKEN: f"{ISSUE_TOKEN}&new", CONF_COOKIES: "SID=new"},
     )
     await hass.async_block_till_done()
 
@@ -322,7 +415,7 @@ async def test_reconfigure(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
-            CONF_ISSUE_TOKEN: "https://accounts.google.com/reconfigured",
+            CONF_ISSUE_TOKEN: f"{ISSUE_TOKEN}&reconfigured",
             CONF_COOKIES: "SID=reconfigured",
         },
     )

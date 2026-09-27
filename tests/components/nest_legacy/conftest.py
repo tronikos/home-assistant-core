@@ -103,6 +103,8 @@ def mock_nest_client(
         client.async_authenticate_with_google_credentials.return_value = nest_session
         client.async_authenticate_with_nest_token.return_value = nest_session
         client.is_expired.return_value = False
+        # Google rotated nothing unless a test says otherwise.
+        client.google_cookies = None
         client.async_get_first_data.return_value = app_launch_data
         client.async_get_camera_events.return_value = []
         client.async_get_camera_properties.return_value = {}

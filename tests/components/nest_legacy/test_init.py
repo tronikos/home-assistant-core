@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 from aiohttp import ClientError
 import pytest
 
-from homeassistant.components.nest_legacy.const import DOMAIN
+from homeassistant.components.nest_legacy.const import CONF_COOKIES, DOMAIN
 from homeassistant.components.nest_legacy.pynest.exceptions import (
     BadCredentialsException,
     NestServiceException,
@@ -112,3 +112,47 @@ async def test_transient_errors_retry_setup(
 
     assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
     assert not hass.config_entries.flow.async_progress()
+
+
+async def test_saves_rotated_cookies(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nest_client: AsyncMock,
+) -> None:
+    """Cookies Google rotated replace the stored ones for the next restart."""
+    mock_nest_client.is_expired.return_value = True
+    mock_nest_client.google_cookies = "OCAK=test; SID=test; SIDCC=rotated"
+
+    await setup_integration(hass, mock_config_entry)
+
+    assert mock_config_entry.state is ConfigEntryState.LOADED
+    calls = mock_nest_client.async_authenticate_with_google_credentials.await_args_list
+    assert len(calls) > 1
+    assert calls[0].args[1] == "OCAK=test; SID=test"
+    # Every later authentication already sends the rotated cookies.
+    assert {call.args[1] for call in calls[1:]} == {
+        "OCAK=test; SID=test; SIDCC=rotated"
+    }
+    assert mock_config_entry.data[CONF_COOKIES] == "OCAK=test; SID=test; SIDCC=rotated"
+
+
+async def test_saves_rotated_cookies_when_authentication_fails(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nest_client: AsyncMock,
+) -> None:
+    """A failure after Google rotated the cookies still keeps the new ones.
+
+    Google has already superseded the old values by then, so the retry has to
+    use the rotated cookies.
+    """
+    mock_nest_client.is_expired.return_value = True
+    mock_nest_client.google_cookies = "OCAK=test; SID=test; SIDCC=rotated"
+    mock_nest_client.async_authenticate_with_google_credentials.side_effect = (
+        NestServiceException("503")
+    )
+
+    await setup_integration(hass, mock_config_entry)
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+    assert mock_config_entry.data[CONF_COOKIES] == "OCAK=test; SID=test; SIDCC=rotated"

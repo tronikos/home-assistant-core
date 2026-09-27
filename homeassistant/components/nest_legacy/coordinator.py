@@ -12,7 +12,7 @@ from google.protobuf.json_format import MessageToDict
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ACCESS_TOKEN
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
@@ -144,9 +144,12 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
             data = self.config_entry.data
             account_type = data.get(CONF_ACCOUNT_TYPE)
             if account_type == "google":
-                await self.client.async_authenticate_with_google_credentials(
-                    data[CONF_ISSUE_TOKEN], data[CONF_COOKIES]
-                )
+                try:
+                    await self.client.async_authenticate_with_google_credentials(
+                        data[CONF_ISSUE_TOKEN], data[CONF_COOKIES]
+                    )
+                finally:
+                    self._async_save_google_cookies()
             elif account_type == "nest":
                 await self.client.async_authenticate_with_nest_token(
                     data[CONF_ACCESS_TOKEN]
@@ -157,6 +160,18 @@ class NestCoordinator(DataUpdateCoordinator[dict[str, NestDevice]]):
                     translation_key="unsupported_account_type",
                     translation_placeholders={"account_type": str(account_type)},
                 )
+
+    @callback
+    def _async_save_google_cookies(self) -> None:
+        """Save the cookies Google rotated so a restart doesn't reuse old ones."""
+        cookies = self.client.google_cookies
+        if not cookies or cookies == self.config_entry.data.get(CONF_COOKIES):
+            return
+        _LOGGER.debug("Saving the cookies Google rotated")
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            data={**self.config_entry.data, CONF_COOKIES: cookies},
+        )
 
     async def async_initialize(self) -> None:
         """Initialize the connection and fetch initial data."""
