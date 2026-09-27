@@ -1940,7 +1940,7 @@ proliphix==0.4.1
 prometheus-client==0.21.0
 
 # homeassistant.components.nest_legacy
-protobuf==6.32.0
+protobuf==6.33.6
 
 # homeassistant.components.prowl
 prowlpy==1.1.5
