@@ -6,7 +6,7 @@ import datetime
 from email.utils import parsedate_to_datetime
 import logging
 import time
-from typing import Any, TypeVar
+from typing import Any, NoReturn, TypeVar
 from urllib.parse import urljoin
 import uuid
 
@@ -30,6 +30,7 @@ from .enums import (
     ThermostatHvacMode,
 )
 from .exceptions import (
+    AuthenticationFailedException,
     BadCredentialsException,
     BadGatewayException,
     EmptyResponseException,
@@ -98,8 +99,13 @@ _NON_RETRYABLE_CODES = frozenset(
     }
 )
 
-# Needed to get the "STRUCTURE_" key (see _parse_structure in parser.py)
-_OBSERVER_ALWAYS_INCLUDE_TRAITS = (nest_occupancy_pb2.StructureModeTrait,)
+# Needed to get the "STRUCTURE_" key of each REST structure, which
+# StructureInfoTrait links through rtsStructureId (see _parse_structure in
+# parser.py)
+_OBSERVER_ALWAYS_INCLUDE_TRAITS = (
+    nest_occupancy_pb2.StructureModeTrait,
+    nest_structure_pb2.StructureInfoTrait,
+)
 
 # Lock-specific traits
 _OBSERVE_LOCK_TRAITS = (
@@ -148,6 +154,7 @@ _OBSERVE_THERMOSTAT_TRAITS = (
     nest_hvac_pb2.FilterReminderTrait,
     # Hot Water / Heat Link
     nest_hvac_pb2.HeatLinkTrait,
+    nest_hvac_pb2.HeatLinkSettingsTrait,
     nest_hvac_pb2.HotWaterTrait,
     nest_hvac_pb2.HotWaterSettingsTrait,
     # Sensors (Thermostat)
@@ -381,6 +388,20 @@ def _get_trait_copy(traits: dict[str, Any] | None, trait_class: type[_T]) -> _T:
         new_trait.CopyFrom(trait)
         return new_trait
     return trait_class()
+
+
+def _raise_for_status_code(status_code: int, msg: str) -> NoReturn:
+    """Raise the exception matching a non-zero protobuf status code."""
+    if status_code == 16:
+        raise NotAuthenticatedException(msg)
+    # Nest answers PERMISSION_DENIED with "authentication failed" for a stale
+    # session (see issue #81), but also for a trait the account can never
+    # access (see issue #61).
+    if status_code == 7 and "authenticat" in msg.lower():
+        raise AuthenticationFailedException(msg)
+    if status_code in _NON_RETRYABLE_CODES:
+        raise NonRetryablePynestException(msg)
+    raise PynestException(msg)
 
 
 def _is_transient_status(status: int) -> bool:
@@ -1475,11 +1496,7 @@ class NestClient:
                 if send_command_resp.status.code != 0:
                     status_code = send_command_resp.status.code
                     msg = f"Command failed with code {status_code}: {send_command_resp.status.message}"
-                    if status_code == 16:
-                        raise NotAuthenticatedException(msg)
-                    if status_code in _NON_RETRYABLE_CODES:
-                        raise NonRetryablePynestException(msg)
-                    raise PynestException(msg)
+                    _raise_for_status_code(status_code, msg)
                 return send_command_resp
 
         for attempt in range(3):
@@ -1607,22 +1624,14 @@ class NestClient:
                 if batch_update_resp.status.code != 0:
                     status_code = batch_update_resp.status.code
                     msg = f"Batch command failed with code {status_code}: {batch_update_resp.status.message}"
-                    if status_code == 16:
-                        raise NotAuthenticatedException(msg)
-                    if status_code in _NON_RETRYABLE_CODES:
-                        raise NonRetryablePynestException(msg)
-                    raise PynestException(msg)
+                    _raise_for_status_code(status_code, msg)
 
                 for resp in batch_update_resp.batchUpdateStateResponse:
                     for op in resp.traitOperations:
                         if op.status.code != 0:
                             status_code = op.status.code
                             msg = f"Trait update failed with code {status_code}: {op.status.message}"
-                            if status_code == 16:
-                                raise NotAuthenticatedException(msg)
-                            if status_code in _NON_RETRYABLE_CODES:
-                                raise NonRetryablePynestException(msg)
-                            raise PynestException(msg)
+                            _raise_for_status_code(status_code, msg)
 
         for attempt in range(3):
             try:
@@ -2426,19 +2435,13 @@ class NestClient:
         for t in cam_event.eventType:
             try:
                 t_str = event_type_enum.Name(t)
-                # Map Protobuf enums to legacy API string formats
-                if t_str == "EVENT_UNFAMILIAR_FACE":
-                    event_types.append("unfamiliar-face")
-                elif t_str == "EVENT_PERSON_TALKING":
-                    event_types.append("personHeard")
-                elif t_str == "EVENT_DOG_BARKING":
-                    event_types.append("dogBarking")
-                elif t_str.startswith("EVENT_"):
-                    event_types.append(t_str[6:].lower())
-                else:
-                    event_types.append(t_str.lower())
             except ValueError:
                 continue
+            # Use the REST cuepoint names, which the Nest web app spells
+            # EVENT_PERSON_TALKING as "person-talking", EVENT_DOG_BARKING as
+            # "dog-barking" and EVENT_PACKAGE_DELIVERED as "package-delivered",
+            # so both APIs report the same types.
+            event_types.append(t_str.removeprefix("EVENT_").lower().replace("_", "-"))
 
         if not event_types:
             return
@@ -2498,8 +2501,9 @@ class NestClient:
             resp = await self._async_send_command(device, command)
         except NonRetryablePynestException as err:
             # Some accounts are not authorized for the camera_observation_history
-            # trait and answer with PERMISSION_DENIED on every poll (see issue #61).
-            # This never recovers, so warn once and stop polling this camera.
+            # trait and answer with PERMISSION_DENIED on every poll (see issue #61),
+            # with an "authentication failed" message that signing in again does
+            # not fix. This never recovers, so warn once and stop polling this camera.
             self._protobuf_events_unauthorized.add(device.object_key)
             _LOGGER.warning(
                 "Protobuf camera events are not available for %s %s, "

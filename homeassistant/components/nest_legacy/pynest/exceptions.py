@@ -21,6 +21,16 @@ class NonRetryablePynestException(PynestException):
     """Raised when an operation fails with a non-retryable error."""
 
 
+class AuthenticationFailedException(
+    NotAuthenticatedException, NonRetryablePynestException
+):
+    """Raised when a command is denied because authentication failed.
+
+    Nest answers this both for a stale session, which signing in again fixes,
+    and for a trait the account can never access, so it is not retried in place.
+    """
+
+
 class GatewayTimeoutException(NestServiceException):
     """Raised when server times out."""
 

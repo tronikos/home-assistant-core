@@ -114,10 +114,14 @@
           "event_type": {
             "name": "Event type",
             "state": {
+              "camera_animal": "Animal",
               "camera_face": "Face",
               "camera_motion": "Motion",
+              "camera_package_delivered": "Package delivered",
+              "camera_package_retrieved": "Package retrieved",
               "camera_person": "Person",
-              "camera_sound": "Sound"
+              "camera_sound": "Sound",
+              "camera_vehicle": "Vehicle"
             }
           }
         }

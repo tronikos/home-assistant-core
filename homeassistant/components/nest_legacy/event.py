@@ -16,10 +16,14 @@ from .const import LOGGER
 from .coordinator import NestConfigEntry, NestCoordinator
 from .entity import NestEntity
 from .events import (
+    EVENT_TYPE_CAMERA_ANIMAL,
     EVENT_TYPE_CAMERA_FACE,
     EVENT_TYPE_CAMERA_MOTION,
+    EVENT_TYPE_CAMERA_PACKAGE_DELIVERED,
+    EVENT_TYPE_CAMERA_PACKAGE_RETRIEVED,
     EVENT_TYPE_CAMERA_PERSON,
     EVENT_TYPE_CAMERA_SOUND,
+    EVENT_TYPE_CAMERA_VEHICLE,
     EVENT_TYPE_DOORBELL_CHIME,
     NEST_LEGACY_EVENT,
 )
@@ -27,31 +31,43 @@ from .pynest.models import NestCamera, NestDevice, NestDoorbell
 
 PARALLEL_UPDATES = 0
 
-# Maps Nest API event types to Home Assistant event types
+# Maps Nest event types, as the REST cuepoint API names them (the client gives
+# protobuf events the same names), to Home Assistant event types
 _NEST_EVENT_TYPE_MAP = {
     "motion": EVENT_TYPE_CAMERA_MOTION,
     "person": EVENT_TYPE_CAMERA_PERSON,
     "sound": EVENT_TYPE_CAMERA_SOUND,
     "person-talking": EVENT_TYPE_CAMERA_SOUND,  # Grouped with sound
-    "personHeard": EVENT_TYPE_CAMERA_SOUND,
-    "dogBarking": EVENT_TYPE_CAMERA_SOUND,
+    "dog-barking": EVENT_TYPE_CAMERA_SOUND,
     "face": EVENT_TYPE_CAMERA_FACE,
     "unfamiliar-face": EVENT_TYPE_CAMERA_FACE,
+    "animal": EVENT_TYPE_CAMERA_ANIMAL,
+    "animal-dog": EVENT_TYPE_CAMERA_ANIMAL,
+    "animal-cat": EVENT_TYPE_CAMERA_ANIMAL,
+    "vehicle": EVENT_TYPE_CAMERA_VEHICLE,
+    "package-delivered": EVENT_TYPE_CAMERA_PACKAGE_DELIVERED,
+    "package-retrieved": EVENT_TYPE_CAMERA_PACKAGE_RETRIEVED,
     "doorbell": EVENT_TYPE_DOORBELL_CHIME,
 }
 
 
 # Priority order for selecting a single HA event type when a Nest event carries
 # multiple types simultaneously (e.g. ["person", "face"]). More specific types
-# rank higher so the richest event type wins.
+# rank higher so the richest event type wins. A package event usually also
+# carries the person who delivered or retrieved it, so it ranks above them.
 _NEST_EVENT_TYPE_PRIORITY: list[str] = [
     "doorbell",
+    "package-delivered",
+    "package-retrieved",
     "face",
     "unfamiliar-face",
     "person",
-    "personHeard",
+    "animal-dog",
+    "animal-cat",
+    "animal",
+    "vehicle",
     "person-talking",
-    "dogBarking",
+    "dog-barking",
     "sound",
     "motion",
 ]
@@ -85,6 +101,10 @@ _DESCRIPTIONS: tuple[NestEventEntityDescription, ...] = (
             EVENT_TYPE_CAMERA_PERSON,
             EVENT_TYPE_CAMERA_SOUND,
             EVENT_TYPE_CAMERA_FACE,
+            EVENT_TYPE_CAMERA_ANIMAL,
+            EVENT_TYPE_CAMERA_VEHICLE,
+            EVENT_TYPE_CAMERA_PACKAGE_DELIVERED,
+            EVENT_TYPE_CAMERA_PACKAGE_RETRIEVED,
         ],
         event_filter=[
             "motion",
@@ -92,9 +112,14 @@ _DESCRIPTIONS: tuple[NestEventEntityDescription, ...] = (
             "sound",
             "face",
             "person-talking",
-            "personHeard",
-            "dogBarking",
+            "dog-barking",
             "unfamiliar-face",
+            "animal",
+            "animal-dog",
+            "animal-cat",
+            "vehicle",
+            "package-delivered",
+            "package-retrieved",
         ],
         device_types=(NestCamera,),
     ),
